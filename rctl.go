@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"syscall"
@@ -12,37 +13,42 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// Supported rctl subjects
+var SUPPORTED_SUBJECTS = []string{"process", "user", "loginclass"}
+
 // copied from sys/syscall.h
 const (
 	SYS_RCTL_GET_RACCT = 525
 )
 
 type Resource struct {
-	cputime         int // CPU time, in seconds
-	datasize        int // data size, in bytes
-	stacksize       int // stack size, in bytes
-	coredumpsize    int // core dump size, in bytes
-	memoryuse       int // resident set size, in bytes
-	memorylocked    int // locked memory, in bytes
-	maxproc         int // number of processes
-	openfiles       int // file descriptor table size
-	vmemoryuse      int // address space limit, in bytes
-	pseudoterminals int // number of PTYs
-	swapuse         int // swap space that may be reserved or used, in bytes
-	nthr            int // number of threads
-	msgqqueued      int // number of queued SysV messages
-	msgqsize        int // SysV message queue size, in bytes
-	nmsgq           int // number of SysV message queues
-	nsem            int // number of SysV semaphores
-	nsemop          int // number of SysV semaphores modified in a single semop(2) call
-	nshm            int // number of SysV shared memory segments
-	shmsize         int // SysV shared memory size, in bytes
-	wallclock       int // wallclock time, in seconds
-	pcpu            int // %CPU, in percents of a single CPU core
-	readbps         int // filesystem reads, in bytes per second
-	writebps        int // filesystem writes, in bytes per second
-	readiops        int // filesystem reads, in operations per seconds
-	writeiops       int // filesystem writes, in operations per seconds
+	resrctype       int    // Resource type : process, jail, loginclass or user
+	resrcid         string // Resource identifier : PID, jail name, loginclass from login.conf, or user name
+	cputime         int    // CPU time, in seconds
+	datasize        int    // data size, in bytes
+	stacksize       int    // stack size, in bytes
+	coredumpsize    int    // core dump size, in bytes
+	memoryuse       int    // resident set size, in bytes
+	memorylocked    int    // locked memory, in bytes
+	maxproc         int    // number of processes
+	openfiles       int    // file descriptor table size
+	vmemoryuse      int    // address space limit, in bytes
+	pseudoterminals int    // number of PTYs
+	swapuse         int    // swap space that may be reserved or used, in bytes
+	nthr            int    // number of threads
+	msgqqueued      int    // number of queued SysV messages
+	msgqsize        int    // SysV message queue size, in bytes
+	nmsgq           int    // number of SysV message queues
+	nsem            int    // number of SysV semaphores
+	nsemop          int    // number of SysV semaphores modified in a single semop(2) call
+	nshm            int    // number of SysV shared memory segments
+	shmsize         int    // SysV shared memory size, in bytes
+	wallclock       int    // wallclock time, in seconds
+	pcpu            int    // %CPU, in percents of a single CPU core
+	readbps         int    // filesystem reads, in bytes per second
+	writebps        int    // filesystem writes, in bytes per second
+	readiops        int    // filesystem reads, in operations per seconds
+	writeiops       int    // filesystem writes, in operations per seconds
 }
 
 func (r *Resource) CpuTime() int {
@@ -183,6 +189,19 @@ func call_syscall(mib []int32) ([]byte, uint64, error) {
 	return buf, length, nil
 }
 
+// Check rule subjetc is valid and supported
+func checkSubject(rule string) error {
+	s := strings.Split(rule, ":")
+
+	for _, v := range SUPPORTED_SUBJECTS {
+		if v == s[0] {
+			return nil
+		}
+	}
+
+	return errors.New("subject not supported")
+}
+
 // Appel du syscall sys_rctl_get_racct implémenté dans sys/kern/kern_rctl.c:1609
 // Le corps de fonction est copié de https://go.googlesource.com/go/+/refs/tags/go1.15.3/src/syscall/zsyscall_freebsd_amd64.go
 func rctlGetRacct(rule string) (string, error) {
@@ -194,7 +213,7 @@ func rctlGetRacct(rule string) (string, error) {
 	}
 
 	// FIXME: 256bytes should be enough for anybody
-	_out := make([]byte, 256)
+	_out := make([]byte, 1024)
 
 	_, _, e1 := syscall.Syscall6(SYS_RCTL_GET_RACCT, uintptr(unsafe.Pointer(_rule)), uintptr(len(rule)+1), uintptr(unsafe.Pointer(&_out[0])), uintptr(len(_out)), 0, 0)
 	if e1 != 0 {
@@ -293,8 +312,26 @@ func parse_resource(resrc string) Resource {
 	return result
 }
 
+// Returns resources usage as a raw string
+func getRawResourceUsage(rule string) (string, error) {
+	err := checkSubject(rule)
+	if err != nil {
+		return "", err
+	}
+
+	buf, err := rctlGetRacct(rule)
+
+	return buf, err
+}
+
+// Returns resources usage as a structure which can be used to pick resources
 func getResourceUsage(rule string) (Resource, error) {
 	var result Resource
+
+	err := checkSubject(rule)
+	if err != nil {
+		return result, err
+	}
 
 	buf, err := rctlGetRacct(rule)
 	if err != nil {
@@ -305,31 +342,3 @@ func getResourceUsage(rule string) (Resource, error) {
 
 	return result, nil
 }
-
-/*func example
-	// get kinfo_proc size
-	k := Kinfo_proc{}
-	procinfo_len := int(unsafe.Sizeof(k))
-	count := int(length / uint64(procinfo_len))
-
-	// parse buf to procs
-	for i := 0; i < count; i++ {
-		b := buf[i*procinfo_len : i*procinfo_len+procinfo_len]
-		k, err := parse_kinfo_proc(b)
-		if err != nil {
-			continue
-		}
-		p, err := newUnixProcess(int(k.Ki_pid))
-		if err != nil {
-			continue
-		}
-		p.ppid, p.pgrp, p.sid, p.binary = copy_params(&k)
-
-		p.cmdline = getCommandLine(p.pid)
-
-		results = append(results, p)
-	}
-
-	return results, nil
-}
-*/
