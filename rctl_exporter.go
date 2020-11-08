@@ -1,6 +1,8 @@
 // Copyright 2020, johan@nosd.in
 // +build freebsd
 
+// Inspired from dovecot_exporter and https://blog.skyrise.tech/custom-prometheus-exporter
+
 package main
 
 import (
