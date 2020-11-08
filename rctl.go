@@ -16,6 +16,13 @@ import (
 // Supported rctl subjects
 var SUPPORTED_SUBJECTS = []string{"process", "user", "loginclass"}
 
+const (
+	RESRC_PROCESS    = 1
+	RESRC_USER       = 2
+	RESRC_LOGINCLASS = 3
+	RESRC_JAIL       = 4
+)
+
 // copied from sys/syscall.h
 const (
 	SYS_RCTL_GET_RACCT = 525
@@ -24,6 +31,8 @@ const (
 type Resource struct {
 	resrctype       int    // Resource type : process, jail, loginclass or user
 	resrcid         string // Resource identifier : PID, jail name, loginclass from login.conf, or user name
+	processppid     int    // For process type, this is the PPID
+	processcmdline  string // For process type, this is the full command line with path and args
 	cputime         int    // CPU time, in seconds
 	datasize        int    // data size, in bytes
 	stacksize       int    // stack size, in bytes
@@ -49,6 +58,28 @@ type Resource struct {
 	writebps        int    // filesystem writes, in bytes per second
 	readiops        int    // filesystem reads, in operations per seconds
 	writeiops       int    // filesystem writes, in operations per seconds
+}
+
+func (r *Resource) GetResourceType() int {
+	return r.resrctype
+}
+
+func (r *Resource) GetResourceID() string {
+	return r.resrcid
+}
+
+func (r *Resource) GetProcessPPID() int {
+	if r.resrctype == RESRC_PROCESS {
+		return r.processppid
+	}
+	return -1
+}
+
+func (r *Resource) GetProcessCommandLine() string {
+	if r.resrctype == RESRC_PROCESS {
+		return r.processcmdline
+	}
+	return ""
 }
 
 func (r *Resource) CpuTime() int {
@@ -189,17 +220,17 @@ func call_syscall(mib []int32) ([]byte, uint64, error) {
 	return buf, length, nil
 }
 
-// Check rule subjetc is valid and supported
-func checkSubject(rule string) error {
+// Check rule subject is valid and supported
+func checkSubject(rule string) (string, error) {
 	s := strings.Split(rule, ":")
 
 	for _, v := range SUPPORTED_SUBJECTS {
 		if v == s[0] {
-			return nil
+			return s[0], nil
 		}
 	}
 
-	return errors.New("subject not supported")
+	return "", errors.New("subject not supported")
 }
 
 // Appel du syscall sys_rctl_get_racct implémenté dans sys/kern/kern_rctl.c:1609
@@ -225,8 +256,23 @@ func rctlGetRacct(rule string) (string, error) {
 	return result, nil
 }
 
-func parse_resource(resrc string) Resource {
+// Parses rctl_get_racct return to fill Resource structure
+func parse_resource(subject string, resrc string) Resource {
 	var result Resource
+
+	if subject == "process" {
+		result.resrctype = RESRC_PROCESS
+	}
+	if subject == "user" {
+		result.resrctype = RESRC_USER
+	}
+	if subject == "loginclass" {
+		result.resrctype = RESRC_LOGINCLASS
+	}
+	if subject == "jail" {
+		result.resrctype = RESRC_JAIL
+	}
+
 	for _, r := range strings.Split(resrc, ",") {
 		s := strings.Split(r, "=")
 		if len(s) != 2 {
@@ -314,7 +360,7 @@ func parse_resource(resrc string) Resource {
 
 // Returns resources usage as a raw string
 func getRawResourceUsage(rule string) (string, error) {
-	err := checkSubject(rule)
+	_, err := checkSubject(rule)
 	if err != nil {
 		return "", err
 	}
@@ -328,7 +374,7 @@ func getRawResourceUsage(rule string) (string, error) {
 func getResourceUsage(rule string) (Resource, error) {
 	var result Resource
 
-	err := checkSubject(rule)
+	subject, err := checkSubject(rule)
 	if err != nil {
 		return result, err
 	}
@@ -338,7 +384,7 @@ func getResourceUsage(rule string) (Resource, error) {
 		return result, err
 	}
 
-	result = parse_resource(buf)
+	result = parse_resource(subject, buf)
 
 	return result, nil
 }
