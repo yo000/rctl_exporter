@@ -1,16 +1,4 @@
 // Copyright 2020, johan@nosd.in
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 // +build freebsd
 
 package main
@@ -27,37 +15,20 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
-	"unsafe"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	ps "github.com/yo000/go-ps"
-	"golang.org/x/sys/unix"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 // TODO : Dans le fichier de config. processFilter contient des regexp pour identifier les process a collecter
 // On surveille le process sshd de l'utilisateur yo
-var processFilter = [1]string{"^sshd"}
+//var processFilter = [1]string{"process:^sshd"}
+var rctlCollect = [1]string{"process:.*"}
 
-// copied from sys/sysctl.h
-const (
-	CTL_KERN         = 1  // "high kernel": proc, limits
-	KERN_PROC        = 14 // struct: process entries
-	KERN_PROC_RLIMIT = 37 // process resource limits
-)
-
-// copied from sys/syscall.h
-const (
-	SYS_RCTL_GET_RACCT = 525
-)
-
-//type Resource struct {
-//	restype   string
-//	proc      Process
-//	resrcList string
-//}
+//var rctlCollect = []string{"user:^yo$"}
+//var rctlCollect = []string{"loginclass:daemon"}
 
 var rctlUpDesc = prometheus.NewDesc(
 	prometheus.BuildFQName("rctl", "", "up"),
@@ -247,84 +218,62 @@ func (e *DovecotExporter) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
-func call_syscall(mib []int32) ([]byte, uint64, error) {
-	miblen := uint64(len(mib))
-
-	// get required buffer size
-	length := uint64(0)
-	_, _, err := syscall.RawSyscall6(
-		syscall.SYS___SYSCTL,
-		uintptr(unsafe.Pointer(&mib[0])),
-		uintptr(miblen),
-		0,
-		uintptr(unsafe.Pointer(&length)),
-		0,
-		0)
-	if err != 0 {
-		b := make([]byte, 0)
-		return b, length, err
-	}
-	if length == 0 {
-		b := make([]byte, 0)
-		return b, length, err
-	}
-	// get proc info itself
-	buf := make([]byte, length)
-	_, _, err = syscall.RawSyscall6(
-		syscall.SYS___SYSCTL,
-		uintptr(unsafe.Pointer(&mib[0])),
-		uintptr(miblen),
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(unsafe.Pointer(&length)),
-		0,
-		0)
-	if err != 0 {
-		return buf, length, err
-	}
-
-	return buf, length, nil
-}
-
-// Appel du syscall sys_rctl_get_racct implémenté dans sys/kern/kern_rctl.c:1609
-// Le corps de fonction est copié de https://go.googlesource.com/go/+/refs/tags/go1.15.3/src/syscall/zsyscall_freebsd_amd64.go
-func rctlGetRacct(rule string) (string, error) {
-	var result string
-
-	_rule, err := unix.BytePtrFromString(rule)
+func getProcessesResources(subject string, filter string) (string, error) {
+	var resrcstr string
+	var err error
+	re, err := regexp.Compile(filter)
 	if err != nil {
-		return result, err
+		log.Printf("rctlCollect %s do not compile\n", filter)
+		log.Fatal(err)
 	}
 
-	// FIXME: 256bytes should be enough for anybody
-	_out := make([]byte, 256)
-
-	_, _, e1 := syscall.Syscall6(SYS_RCTL_GET_RACCT, uintptr(unsafe.Pointer(_rule)), uintptr(len(rule)+1), uintptr(unsafe.Pointer(&_out[0])), uintptr(len(_out)), 0, 0)
-	if e1 != 0 {
-		// 78 = "RACCT/RCTL present, but disabled; enable using kern.racct.enable=1 tunable"
-		return string(_out), e1
+	processList, err := ps.Processes()
+	if err != nil {
+		log.Println("ps.Processes() Failed, are you using windows?")
+		return resrcstr, err
 	}
+	// map ages
+	for x := range processList {
+		var process ps.Process
 
-	result = string(_out)
-	return result, nil
+		process = processList[x]
+
+		if len(re.FindString(process.CommandLine())) > 0 {
+			log.Printf("%d\t%d\t%s\n", process.PPid(), process.Pid(), process.CommandLine())
+			rule := fmt.Sprintf("%s:%d:", subject, process.Pid())
+			resrcstr, err = getRawResourceUsage(rule)
+			log.Printf("%s\n", resrcstr)
+		}
+	}
+	return resrcstr, err
 }
 
-func getProcessResources(pid int) string {
-	var cmdline string
-	var byt []byte
+func getUsersResources(subject string, filter string) (string, error) {
+	//re, err := regexp.Compile(filter)
+	//if err != nil {
+	//	log.Printf("rctlCollect %s do not compile\n", filter)
+	//	log.Fatal(err)
+	//}
 
-	//	var len uint64
+	// TODO : list all users and support regex
+	rule := fmt.Sprintf("%s:%s", subject, "1001:")
+	resrcstr, err := getRawResourceUsage(rule)
 
-	// parse buf to command line by replacing \0 with space
-	//	for i := uint64(0); i < len; i++ {
-	//		if buf[i] != 0 {
-	//			byt = append(byt, buf[i])
-	//		} else {
-	//			byt = append(byt, ' ')
-	//		}
-	//	}
-	cmdline = string(byt)
+	return resrcstr, err
+}
 
-	return cmdline
+func getLoginClassResources(subject string, filter string) (string, error) {
+	//re, err := regexp.Compile(filter)
+	//if err != nil {
+	//	log.Printf("rctlCollect %s do not compile\n", filter)
+	//	log.Fatal(err)
+	//}
+
+	// TODO : List login classes to match regex
+	rule := fmt.Sprintf("%s:%s", subject, filter)
+	resrcstr, err := getRawResourceUsage(rule)
+
+	return resrcstr, err
 }
 
 func main() {
@@ -337,38 +286,26 @@ func main() {
 	)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
-	// Boucle principale : On collecte les porcessus ciblés
-	processList, err := ps.Processes()
-	if err != nil {
-		log.Println("ps.Processes() Failed, are you using windows?")
-		return
-	}
-	// map ages
-	for x := range processList {
-		var process ps.Process
-		process = processList[x]
+	// Boucle principale : On collecte les métriques ciblées
+	for i := range rctlCollect {
+		s := strings.SplitN(rctlCollect[i], ":", 2)
+		subject, filter := s[0], s[1]
 
-		for i := range processFilter {
-			re, err := regexp.Compile(processFilter[i])
-			if err != nil {
-				log.Printf("processFilter %s do not compile\n", processFilter[i])
-				log.Fatal(err)
+		if subject == "process" {
+			getProcessesResources(subject, filter)
+			// getProcessesResources prints values itself
+		} else if subject == "user" {
+			resrc, err := getUsersResources(subject, filter)
+			if err == nil {
+				log.Printf("%s\n", resrc)
 			}
-			if len(re.FindString(process.CommandLine())) > 0 {
-				log.Printf("%d\t%d\t%s\n", process.PPid(), process.Pid(), process.CommandLine())
-				rule := fmt.Sprintf("process:%d:", process.Pid())
-				resrc, err := rctlGetRacct(rule)
-				if err == nil {
-					log.Printf("%s\n", resrc)
-				}
+		} else if subject == "loginclass" {
+			resrc, err := getLoginClassResources(subject, filter)
+			if err == nil {
+				log.Printf("%s\n", resrc)
 			}
-
 		}
-		//log.Printf("%d\t%d\t%s\n", process.PPid(), process.Pid(), process.CommandLine())
-
-		// do os.* stuff on the pid
 	}
-
 	// FIN Boucle principale
 
 	exporter := NewDovecotExporter(*socketPath, strings.Split(*dovecotScopes, ","))
