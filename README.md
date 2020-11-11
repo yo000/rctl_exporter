@@ -19,4 +19,16 @@ go get
 go build
 ```
 
+- - - -
+
+# Usage
+
+Resources to monitor are specified in the configuration file. There is 4 resources types (see man page of rctl).
+Each resource can be specified using regexp :
+```
+rctl_collect:
+  - 'process:^java.*'
+  - 'user:yo$'
+  - 'jail:mongo'
+```
 
