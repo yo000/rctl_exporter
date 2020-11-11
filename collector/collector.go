@@ -10,21 +10,24 @@ import (
 	//	"fmt"
 	//	"strings"
 
+	"strconv"
 	"strings"
 
-	// local import, see go.mod
+	"git.nosd.in/yo/rctl_exporter/rctl"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/log"
+	"github.com/sirupsen/logrus"
 )
 
 type Collector struct {
-	resrces []*Resource
+	resrces []rctl.Resource
 	log     *logrus.Logger
 	up      *prometheus.Desc
 	// ... declare some more descriptors here ...
 }
 
 // instantiate a collector object
-func New(resrc []*Resource, log *logrus.Logger) *Collector {
+func New(resrc []rctl.Resource, log *logrus.Logger) *Collector {
 	return &Collector{
 
 		//up: prometheus.NewDesc("rctl_up", "Whether scraping rctl's metrics was successful", []string{"collectFilter"}, nil),
@@ -44,7 +47,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	// ... describe other metrics ...
 }
 
-func collectFromResourceStruct(resrces []*Resource) {
+func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) {
 	// 1. Describe metrics by
 	//		- building names with prometheus.BuildFQName
 	//		- Declare them with prometheus.NewDesc(fqname, help, variablelabels, constlabels)
@@ -56,14 +59,41 @@ func collectFromResourceStruct(resrces []*Resource) {
 	// rctl_usage_loginclass{class="daemon"}
 	// rctl_usage_jail{jid="120", name="dovecot"}
 
-	for _, resrcObj := range resrces {
-		if resrcObj.resrctype == "process" {
-			for _, resrc := range resrcObj.rawresources {
-				s := strings.Split(resrc, "=")
+	//log.Info("Inside CollectFromResourceStruct, got " + strconv.Itoa(len(c.resrces)) + " elements in c.resrces")
+
+	for _, resrcObj := range c.resrces {
+		if resrcObj.GetResourceType() == rctl.RESRC_PROCESS {
+			log.Info("Collecting resources for PID " + resrcObj.GetID())
+			rawresrces := resrcObj.GetRawResources()
+			log.Info("Longueur de la chaine provenant de GetRawResources() " + strconv.Itoa(len(rawresrces)))
+			rawresrc := strings.Split(rawresrces, ",")
+			for _, resrc := range rawresrc {
+				// Last resource is not correctly terminated (len ~ 860char); it cause float conversion to crash so ensure we
+				// got a string with only the printable chars
+				var i int
+				for i, _ = range resrc {
+					if resrc[i] == 0 {
+						break
+					}
+				}
+				tmpstr := resrc[0:i]
+
+				s := strings.SplitN(tmpstr, "=", 2)
 				d := prometheus.NewDesc("rctl_usage_process_"+s[0], "man rctl", []string{"pid", "cmdline"}, nil)
-				ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, s[1], []string{resrc.GetResourceID(), resrc.GetProcessCommandLine()})
+				if len(s[1]) > 0 && s[1] != "0" {
+					//v, err := strconv.ParseFloat(s[1], 64)
+					v, err := strconv.ParseInt(s[1], 10, 64)
+					if err != nil {
+						log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
+						return
+					}
+					ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, float64(v), resrcObj.GetID(), resrcObj.GetProcessCommandLine())
+				} else {
+					ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.GetID(), resrcObj.GetProcessCommandLine())
+				}
+
 			}
-		} else if resrcObj.resrctype == "user" {
+		} else if resrcObj.GetResourceType() == rctl.RESRC_USER {
 		}
 	}
 }
@@ -76,9 +106,9 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	//
 	//	} else {
 	//		// client call succeeded, set the up metric value to 1
-	ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 1, "collectFilterGoesHere")
+	ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 1, "pidnull", "cmdlinenull")
 
-	collectFromResourceStruct(resrces)
+	c.collectFromResourceStruct(ch)
 
 	// ... collect other metrics ...
 	//	}
