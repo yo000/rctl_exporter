@@ -24,12 +24,14 @@ var (
 // TODO : Dans le fichier de config. processFilter contient des regexp pour identifier les process a collecter
 // On surveille le process sshd de l'utilisateur yo
 //var processFilter = [1]string{"process:^sshd"}
-var rctlCollect = []string{"process:.*"}
+//var rctlCollect = []string{"process:.*"}
 
-//var rctlCollect = []string{"user:^yo$"}
+var rctlCollect = []string{"process:.*", "user:^yo$"}
+
 //var rctlCollect = []string{"loginclass:daemon"}
 
 func main() {
+	var results []rctl.Resource
 	var (
 		app           = kingpin.New("rctl_exporter", "Prometheus metrics exporter for rctl")
 		listenAddress = app.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9166").String()
@@ -39,13 +41,6 @@ func main() {
 	)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
-	var results []rctl.Resource
-
-	log.SetLevel(logrus.DebugLevel)
-
-	// On collecte les métriques ciblées
-	//	for i := range rctlCollect {
-	//rmgr, err := rctl.NewResourceManager(rctlCollect[i], log)
 	rmgr, err := rctl.NewResourceManager(rctlCollect, log)
 	if err != nil {
 		log.Error("Error getting resources : %d", err)
@@ -53,13 +48,9 @@ func main() {
 	for _, r := range rmgr.GetResources() {
 		results = append(results, r)
 	}
-	//	}
 
-	// FIN Boucle principale
 	coll := collector.New(rmgr, log)
 	prometheus.MustRegister(coll)
-	//exporter := NewDovecotExporter(*socketPath, strings.Split(*dovecotScopes, ","))
-	//prometheus.MustRegister(exporter)
 
 	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

@@ -6,6 +6,7 @@ package rctl
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"regexp"
 	"strconv"
 	"strings"
@@ -37,9 +38,10 @@ const (
 
 type Resource struct {
 	resrctype       int    // Resource type : process, jail, loginclass or user
-	resrcid         string // Resource identifier : PID, jail name, loginclass from login.conf, or user name
+	resrcid         string // Resource identifier : PID, UID, jail name or loginclass from login.conf
 	processppid     int    // For process type, this is the PPID
 	processcmdline  string // For process type, this is the full command line with path and args
+	username        string // For user type, this is the username
 	rawresources    string // Raw string resources, as returned by rctl binary
 	cputime         int    // CPU time, in seconds
 	datasize        int    // data size, in bytes
@@ -74,6 +76,11 @@ type ResourceMgr struct {
 	resources     []Resource
 }
 
+type User struct {
+	name string
+	uid  int
+}
+
 func (r *Resource) GetResourceType() int {
 	return r.resrctype
 }
@@ -98,6 +105,22 @@ func (r *Resource) GetProcessCommandLine() string {
 		return r.processcmdline
 	}
 	return ""
+}
+
+func (r *Resource) GetUserName() string {
+	if r.resrctype == RESRC_USER {
+		return r.username
+	}
+	return ""
+}
+
+func (r *Resource) SetUserName(uname string) error {
+	var err error
+	if r.resrctype == RESRC_USER {
+		r.username = uname
+		return err
+	}
+	return errors.New("Resource is not of type user")
 }
 
 func (r *Resource) GetRawResources() string {
@@ -226,17 +249,18 @@ func (r *ResourceMgr) Refresh() (*ResourceMgr, error) {
 				return r, err
 			}
 			results = append(results, res...)
-			// getProcessesResources prints values itself
 		} else if subject == "user" {
-			_, err = getUsersResources(subject, filter)
+			res, err := getUsersResources(subject, filter)
 			if err != nil {
-				log.Error("Error : ", err.Error())
+				return r, err
 			}
+			results = append(results, res...)
 		} else if subject == "loginclass" {
-			_, err = getLoginClassResources(subject, filter)
+			res, err := getLoginClassResources(subject, filter)
 			if err != nil {
-				log.Error("Error : ", err.Error())
+				return r, err
 			}
+			results = append(results, res...)
 		}
 	}
 
@@ -462,6 +486,8 @@ func getResourceUsage(rule string) (Resource, error) {
 
 	result = parse_resource(subject, buf)
 
+	//log.Info("Returned resources as raw : " + result.GetRawResources())
+
 	return result, nil
 }
 
@@ -472,7 +498,7 @@ func getProcessesResources(subject string, filter string) ([]Resource, error) {
 
 	re, err := regexp.Compile(filter)
 	if err != nil {
-		GLog.Fatal("rctlCollect %s do not compile\n", filter)
+		GLog.Fatal("rctlCollect %s do not compile", filter)
 	}
 
 	processList, err := ps.Processes()
@@ -502,22 +528,77 @@ func getProcessesResources(subject string, filter string) ([]Resource, error) {
 	return results, err
 }
 
+func getUsersFromPasswd() ([]User, error) {
+	var user User
+	var users []User
+
+	data, err := ioutil.ReadFile("/etc/passwd")
+	if err != nil {
+		return users, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if len(line) > 0 && strings.HasPrefix(string(line), "#") == false {
+			s := strings.Split(string(line), ":")
+			if len(s) > 0 {
+				if strings.Count(string(s[0]), "") > 0 {
+					user.name = s[0]
+					user.uid, _ = strconv.Atoi(s[2])
+					log.Debug("Appending user " + user.name + " with UID " + strconv.Itoa(user.uid))
+					users = append(users, user)
+				}
+			}
+		}
+	}
+
+	return users, err
+}
+
 // TODO : Return ([]Resource, error), list users and support regex
-func getUsersResources(subject string, filter string) (string, error) {
+func getUsersResources(subject string, filter string) ([]Resource, error) {
+	var resources []Resource
 	//re, err := regexp.Compile(filter)
 	//if err != nil {
 	//	log.Printf("rctlCollect %s do not compile\n", filter)
 	//	log.Fatal(err)
 	//}
 
-	rule := fmt.Sprintf("%s:%s", subject, "1001:")
-	resrcstr, err := getRawResourceUsage(rule)
+	users, err := getUsersFromPasswd()
+	if err != nil {
+		return resources, err
+	}
+	re, err := regexp.Compile(filter)
+	if err != nil {
+		log.Fatal("rctlCollect %s do not compile", filter)
+	}
 
-	return resrcstr, err
+	for _, user := range users {
+		if len(re.FindString(user.name)) > 0 {
+			rule := fmt.Sprintf("%s:%d:", subject, user.uid)
+			log.Debug("Rule : " + rule)
+			r, err := getResourceUsage(rule)
+			if err != nil {
+				log.Error("Error while getting resource usage for rule : " + rule)
+				return resources, err
+			}
+			r.SetID(strconv.Itoa(user.uid))
+			r.SetUserName(user.name)
+			resources = append(resources, r)
+			//log.Info("Added " + r.GetUserName() + " with resources : " + r.GetRawResources())
+		}
+	}
+
+	if false {
+		for _, r := range resources {
+			log.Info("Returning resource " + r.GetRawResources() + " for filter/ID " + filter + "/" + r.GetID())
+		}
+	}
+
+	return resources, err
 }
 
 // TODO : Return ([]Resource, error), list login classes and support regex
-func getLoginClassResources(subject string, filter string) (string, error) {
+func getLoginClassResources(subject string, filter string) ([]Resource, error) {
+	var resources []Resource
 	//re, err := regexp.Compile(filter)
 	//if err != nil {
 	//	log.Printf("rctlCollect %s do not compile\n", filter)
@@ -526,9 +607,9 @@ func getLoginClassResources(subject string, filter string) (string, error) {
 
 	// TODO : List login classes to match regex
 	rule := fmt.Sprintf("%s:%s", subject, filter)
-	resrcstr, err := getRawResourceUsage(rule)
+	_, err := getRawResourceUsage(rule)
 
-	return resrcstr, err
+	return resources, err
 }
 
 // Bootstrap function to build Resource objects matching given filter
