@@ -5,26 +5,31 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
 
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
 
-// Supported rctl subjects
-var SUPPORTED_SUBJECTS = []string{"process", "user", "loginclass"}
+var (
+	GLog *logrus.Logger
+)
 
 const (
+	// Supported rctl subjects
+	SUPPORTED_SUBJECTS = []string{"process", "user", "loginclass"}
+
 	RESRC_PROCESS    = 1
 	RESRC_USER       = 2
 	RESRC_LOGINCLASS = 3
 	RESRC_JAIL       = 4
-)
 
-// copied from sys/syscall.h
-const (
+	// copied from sys/syscall.h
 	SYS_RCTL_GET_RACCT = 525
 )
 
@@ -33,6 +38,7 @@ type Resource struct {
 	resrcid         string // Resource identifier : PID, jail name, loginclass from login.conf, or user name
 	processppid     int    // For process type, this is the PPID
 	processcmdline  string // For process type, this is the full command line with path and args
+	rawresources    string // Raw string resources, as returned by rctl binary
 	cputime         int    // CPU time, in seconds
 	datasize        int    // data size, in bytes
 	stacksize       int    // stack size, in bytes
@@ -80,6 +86,10 @@ func (r *Resource) GetProcessCommandLine() string {
 		return r.processcmdline
 	}
 	return ""
+}
+
+func (r *Resource) GetRawResources() string {
+	return r.rawresources
 }
 
 func (r *Resource) CpuTime() int {
@@ -248,6 +258,7 @@ func rctlGetRacct(rule string) (string, error) {
 
 	_, _, e1 := syscall.Syscall6(SYS_RCTL_GET_RACCT, uintptr(unsafe.Pointer(_rule)), uintptr(len(rule)+1), uintptr(unsafe.Pointer(&_out[0])), uintptr(len(_out)), 0, 0)
 	if e1 != 0 {
+		GLog.Error("syscall rctl_get_racct returned an error : %d", e1)
 		// 78 = "RACCT/RCTL present, but disabled; enable using kern.racct.enable=1 tunable"
 		return string(_out), e1
 	}
@@ -273,6 +284,10 @@ func parse_resource(subject string, resrc string) Resource {
 		result.resrctype = RESRC_JAIL
 	}
 
+	// Save raw result...
+	result.rawresources = resrc
+
+	// ...then parse into fields
 	for _, r := range strings.Split(resrc, ",") {
 		s := strings.Split(r, "=")
 		if len(s) != 2 {
@@ -387,4 +402,99 @@ func getResourceUsage(rule string) (Resource, error) {
 	result = parse_resource(subject, buf)
 
 	return result, nil
+}
+
+func getProcessesResources(subject string, filter string) ([]Resource, error) {
+	var resrcstr string
+	var err error
+	re, err := regexp.Compile(filter)
+	if err != nil {
+		GLog.Fatal("rctlCollect %s do not compile\n", filter)
+	}
+
+	processList, err := ps.Processes()
+	if err != nil {
+		GLog.Fatal("ps.Processes() Failed, are you using windows?")
+		return resrcstr, err
+	}
+
+	GLog.Debug("%d processes running")
+	// Allocate an array of 0, to max len(processList)
+	results := make([]Resource, 0, len(processList))
+
+	// map ages
+	for x := range processList {
+		var process ps.Process
+
+		process = processList[x]
+
+		if len(re.FindString(process.CommandLine())) > 0 {
+			//log.Printf("%d\t%d\t%s\n", process.PPid(), process.Pid(), process.CommandLine())
+			rule := fmt.Sprintf("%s:%d:", subject, process.Pid())
+			//resrcstr, err = getRawResourceUsage(rule)
+			r, err := getResourceUsage(rule)
+			if err != nil {
+				return results, err
+			}
+			results = append(results, r)
+			//log.Printf("%s\n", resrcstr)
+		}
+	}
+	return results, err
+}
+
+func getUsersResources(subject string, filter string) (string, error) {
+	//re, err := regexp.Compile(filter)
+	//if err != nil {
+	//	log.Printf("rctlCollect %s do not compile\n", filter)
+	//	log.Fatal(err)
+	//}
+
+	// TODO : list all users and support regex
+	rule := fmt.Sprintf("%s:%s", subject, "1001:")
+	resrcstr, err := getRawResourceUsage(rule)
+
+	return resrcstr, err
+}
+
+func getLoginClassResources(subject string, filter string) (string, error) {
+	//re, err := regexp.Compile(filter)
+	//if err != nil {
+	//	log.Printf("rctlCollect %s do not compile\n", filter)
+	//	log.Fatal(err)
+	//}
+
+	// TODO : List login classes to match regex
+	rule := fmt.Sprintf("%s:%s", subject, filter)
+	resrcstr, err := getRawResourceUsage(rule)
+
+	return resrcstr, err
+}
+
+// Bootstrap function to build Resource objects matching given filter
+// Should be the first function called, init GLog
+func NewResourceManager(resrcFilter string, log *logrus.Logger) ([]Resource, error) {
+	// "log" var exists at global scope, but the value of the local variable inside a function takes preference
+	GLog = log
+
+	// split 2 first words, so resrcFilter value can contains ':'
+	s := strings.SplitN(resrcFilter, ":", 2)
+	subject, filter := s[0], s[1]
+
+	if subject == "process" {
+		results := getProcessesResources(subject, filter)
+		// getProcessesResources prints values itself
+	} else if subject == "user" {
+		resrc, err := getUsersResources(subject, filter)
+		if err == nil {
+			log.Printf("%s\n", resrc)
+		}
+	} else if subject == "loginclass" {
+		resrc, err := getLoginClassResources(subject, filter)
+		if err == nil {
+			log.Printf("%s\n", resrc)
+		}
+	}
+
+	return nil, results
 }
