@@ -68,6 +68,12 @@ type Resource struct {
 	writeiops       int    // filesystem writes, in operations per seconds
 }
 
+type ResourceMgr struct {
+	resrcesfilter []string
+	log           *logrus.Logger
+	resources     []Resource
+}
+
 func (r *Resource) GetResourceType() int {
 	return r.resrctype
 }
@@ -198,6 +204,47 @@ func (r *Resource) WriteIops() int {
 	return r.writeiops
 }
 
+func (r *ResourceMgr) GetResources() []Resource {
+	return r.resources
+}
+
+func (r *ResourceMgr) Refresh() (*ResourceMgr, error) {
+	var results []Resource
+	var err error
+
+	// Temporaire
+	//var resrc string
+
+	for _, resrcFilter := range r.resrcesfilter {
+		// split 2 first words, so resrcFilter value can contains ':'
+		s := strings.SplitN(resrcFilter, ":", 2)
+		subject, filter := s[0], s[1]
+
+		if subject == "process" {
+			res, err := getProcessesResources(subject, filter)
+			if err != nil {
+				return r, err
+			}
+			results = append(results, res...)
+			// getProcessesResources prints values itself
+		} else if subject == "user" {
+			_, err = getUsersResources(subject, filter)
+			if err != nil {
+				log.Error("Error : ", err.Error())
+			}
+		} else if subject == "loginclass" {
+			_, err = getLoginClassResources(subject, filter)
+			if err != nil {
+				log.Error("Error : ", err.Error())
+			}
+		}
+	}
+
+	r.resources = results
+
+	return r, err
+}
+
 func call_syscall(mib []int32) ([]byte, uint64, error) {
 	miblen := uint64(len(mib))
 
@@ -259,18 +306,26 @@ func rctlGetRacct(rule string) (string, error) {
 		return result, err
 	}
 
-	// FIXME: 256bytes should be enough for anybody
+	// FIXME: 1024bytes should be enough for anybody
 	_out := make([]byte, 1024)
 
-	_, _, e1 := syscall.Syscall6(SYS_RCTL_GET_RACCT, uintptr(unsafe.Pointer(_rule)), uintptr(len(rule)+1), uintptr(unsafe.Pointer(&_out[0])), uintptr(len(_out)), 0, 0)
+	_, _, e1 := syscall.Syscall6(SYS_RCTL_GET_RACCT, uintptr(unsafe.Pointer(_rule)),
+		uintptr(len(rule)+1), uintptr(unsafe.Pointer(&_out[0])),
+		uintptr(len(_out)), 0, 0)
 	if e1 != 0 {
-		GLog.Error("syscall rctl_get_racct returned an error : %d", e1)
+		GLog.Error("syscall rctl_get_racct returned an error : ", e1)
 		// 78 = "RACCT/RCTL present, but disabled; enable using kern.racct.enable=1 tunable"
 		return string(_out), e1
 	}
 
-	result = string(_out)
-	return result, nil
+	var i int
+	for i, _ = range _out {
+		if _out[i] == 0 {
+			break
+		}
+	}
+
+	return string(_out[0:i]), nil
 }
 
 // Parses rctl_get_racct return to fill Resource structure
@@ -426,16 +481,10 @@ func getProcessesResources(subject string, filter string) ([]Resource, error) {
 		return results, err
 	}
 
-	GLog.Debug("%d processes running")
 	// Allocate an array of 0, to max len(processList)
 	results = make([]Resource, 0, len(processList))
 
 	for _, process := range processList {
-		//var process ps.Process
-
-		//process = processList[x]
-
-		log.Info("Working on process " + strconv.Itoa(process.Pid()))
 		if len(re.FindString(process.CommandLine())) > 0 {
 			rule := fmt.Sprintf("%s:%d:", subject, process.Pid())
 			r, err := getResourceUsage(rule)
@@ -453,6 +502,7 @@ func getProcessesResources(subject string, filter string) ([]Resource, error) {
 	return results, err
 }
 
+// TODO : Return ([]Resource, error), list users and support regex
 func getUsersResources(subject string, filter string) (string, error) {
 	//re, err := regexp.Compile(filter)
 	//if err != nil {
@@ -460,13 +510,13 @@ func getUsersResources(subject string, filter string) (string, error) {
 	//	log.Fatal(err)
 	//}
 
-	// TODO : list all users and support regex
 	rule := fmt.Sprintf("%s:%s", subject, "1001:")
 	resrcstr, err := getRawResourceUsage(rule)
 
 	return resrcstr, err
 }
 
+// TODO : Return ([]Resource, error), list login classes and support regex
 func getLoginClassResources(subject string, filter string) (string, error) {
 	//re, err := regexp.Compile(filter)
 	//if err != nil {
@@ -483,33 +533,16 @@ func getLoginClassResources(subject string, filter string) (string, error) {
 
 // Bootstrap function to build Resource objects matching given filter
 // Should be the first function called, init GLog
-func NewResourceManager(resrcFilter string, log *logrus.Logger) ([]Resource, error) {
-	var results []Resource
-	var err error
+func NewResourceManager(resrcesFilter []string, log *logrus.Logger) (ResourceMgr, error) {
+	var resmgr ResourceMgr
 
-	// Temporaire
-	var resrc string
 	// "log" var exists at global scope, but the value of the local variable inside a function takes preference
+	// FIXME
 	GLog = log
+	resmgr.log = log
+	resmgr.resrcesfilter = resrcesFilter
 
-	// split 2 first words, so resrcFilter value can contains ':'
-	s := strings.SplitN(resrcFilter, ":", 2)
-	subject, filter := s[0], s[1]
+	resmgr.Refresh()
 
-	if subject == "process" {
-		results, err = getProcessesResources(subject, filter)
-		// getProcessesResources prints values itself
-	} else if subject == "user" {
-		resrc, err = getUsersResources(subject, filter)
-		if err == nil {
-			log.Printf("%s\n", resrc)
-		}
-	} else if subject == "loginclass" {
-		resrc, err = getLoginClassResources(subject, filter)
-		if err == nil {
-			log.Printf("%s\n", resrc)
-		}
-	}
-
-	return results, nil
+	return resmgr, nil
 }

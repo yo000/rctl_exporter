@@ -7,9 +7,7 @@
 package collector
 
 import (
-	//	"fmt"
-	//	"strings"
-
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -20,20 +18,20 @@ import (
 )
 
 type Collector struct {
-	resrces []rctl.Resource
-	log     *logrus.Logger
-	up      *prometheus.Desc
+	resmgr rctl.ResourceMgr
+	log    *logrus.Logger
+	up     *prometheus.Desc
 	// ... declare some more descriptors here ...
 }
 
 // instantiate a collector object
-func New(resrc []rctl.Resource, log *logrus.Logger) *Collector {
+func New(resmgr rctl.ResourceMgr, log *logrus.Logger) *Collector {
 	return &Collector{
 
 		//up: prometheus.NewDesc("rctl_up", "Whether scraping rctl's metrics was successful", []string{"collectFilter"}, nil),
-		up:      prometheus.NewDesc("rctl_up", "Whether scraping rctl's metrics was successful", []string{"pid", "cmdline"}, nil),
-		log:     log,
-		resrces: resrc,
+		up:     prometheus.NewDesc("rctl_up", "Whether scraping rctl's metrics was successful", []string{"pid", "cmdline"}, nil),
+		log:    log,
+		resmgr: resmgr,
 
 		// ... initialize rest of the descriptors ...
 		// ... do other initialization ...
@@ -47,7 +45,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	// ... describe other metrics ...
 }
 
-func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) {
+func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error {
 	// 1. Describe metrics by
 	//		- building names with prometheus.BuildFQName
 	//		- Declare them with prometheus.NewDesc(fqname, help, variablelabels, constlabels)
@@ -59,75 +57,47 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) {
 	// rctl_usage_loginclass{class="daemon"}
 	// rctl_usage_jail{jid="120", name="dovecot"}
 
-	//log.Info("Inside CollectFromResourceStruct, got " + strconv.Itoa(len(c.resrces)) + " elements in c.resrces")
+	c.resmgr.Refresh()
 
-	for _, resrcObj := range c.resrces {
+	for _, resrcObj := range c.resmgr.GetResources() {
 		if resrcObj.GetResourceType() == rctl.RESRC_PROCESS {
-			log.Info("Collecting resources for PID " + resrcObj.GetID())
 			rawresrces := resrcObj.GetRawResources()
-			log.Info("Longueur de la chaine provenant de GetRawResources() " + strconv.Itoa(len(rawresrces)))
 			rawresrc := strings.Split(rawresrces, ",")
 			for _, resrc := range rawresrc {
-				// Last resource is not correctly terminated (len ~ 860char); it cause float conversion to crash so ensure we
-				// got a string with only the printable chars
-				var i int
-				for i, _ = range resrc {
-					if resrc[i] == 0 {
-						break
+				s := strings.SplitN(resrc, "=", 2)
+				if len(s) == 2 {
+					d := prometheus.NewDesc("rctl_usage_process_"+s[0], "man rctl", []string{"pid", "cmdline"}, nil)
+					if len(s[1]) > 0 && s[1] != "0" {
+						v, err := strconv.ParseFloat(s[1], 64)
+						//v, err := strconv.ParseInt(s[1], 10, 64)
+						if err != nil {
+							log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
+							return err
+						}
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.GetID(), resrcObj.GetProcessCommandLine())
+					} else {
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.GetID(), resrcObj.GetProcessCommandLine())
 					}
-				}
-				tmpstr := resrc[0:i]
-
-				s := strings.SplitN(tmpstr, "=", 2)
-				d := prometheus.NewDesc("rctl_usage_process_"+s[0], "man rctl", []string{"pid", "cmdline"}, nil)
-				if len(s[1]) > 0 && s[1] != "0" {
-					//v, err := strconv.ParseFloat(s[1], 64)
-					v, err := strconv.ParseInt(s[1], 10, 64)
-					if err != nil {
-						log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
-						return
-					}
-					ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, float64(v), resrcObj.GetID(), resrcObj.GetProcessCommandLine())
 				} else {
-					ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.GetID(), resrcObj.GetProcessCommandLine())
+					log.Error("resource format is incorrect : " + resrc)
+					return fmt.Errorf("Resource incorrect format : %s", resrc)
 				}
 
 			}
 		} else if resrcObj.GetResourceType() == rctl.RESRC_USER {
 		}
 	}
+
+	return nil
 }
 
 // Collect - called to get the metric values
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
-	//if stats, err := c.client.GetServiceBusStats(); err != nil {
-	//	// client call failed, set the up metric value to 0
-	//	ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 0)
-	//
-	//	} else {
-	//		// client call succeeded, set the up metric value to 1
-	ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 1, "pidnull", "cmdlinenull")
 
-	c.collectFromResourceStruct(ch)
-
-	// ... collect other metrics ...
-	//	}
-
-	//	for _, scope := range e.scopes {
-	//		err := CollectFromSocket(e.socketPath, scope, ch)
-	//		if err == nil {
-	//			ch <- prometheus.MustNewConstMetric(
-	//				rctlUpDesc,
-	//				prometheus.GaugeValue,
-	//				1.0,
-	//				scope)
-	//		} else {
-	//			log.Printf("Failed to scrape socket: %s", err)
-	//			ch <- prometheus.MustNewConstMetric(
-	//				rctlUpDesc,
-	//				prometheus.GaugeValue,
-	//				0.0,
-	//				scope)
-	//		}
-	//	}
+	err := c.collectFromResourceStruct(ch)
+	if err != nil {
+		ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 0, "pidnull", "cmdlinenull")
+	} else {
+		ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 1, "pidnull", "cmdlinenull")
+	}
 }
