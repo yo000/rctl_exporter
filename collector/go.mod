@@ -1,1 +1,0 @@
-module coincoin.org/collector
