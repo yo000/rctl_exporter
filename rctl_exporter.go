@@ -9,19 +9,24 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 
+	// local import, see go.mod
+	"coincoin.org/rctl_exporter/collector"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	ps "github.com/yo000/go-ps"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
+)
+
+var (
+	log = logrus.New()
 )
 
 // TODO : Dans le fichier de config. processFilter contient des regexp pour identifier les process a collecter
@@ -32,11 +37,12 @@ var rctlCollect = [1]string{"process:.*"}
 //var rctlCollect = []string{"user:^yo$"}
 //var rctlCollect = []string{"loginclass:daemon"}
 
-var rctlUpDesc = prometheus.NewDesc(
-	prometheus.BuildFQName("rctl", "", "up"),
-	"Whether scraping rctl's metrics was successful.",
-	[]string{"scope"},
-	nil)
+// collector.go
+//var rctlUpDesc = prometheus.NewDesc(
+//	prometheus.BuildFQName("rctl", "", "up"),
+//	"Whether scraping rctl's metrics was successful.",
+//	[]string{"scope"},
+//	nil)
 
 // CollectFromReader converts the output of Dovecot's EXPORT command to metrics.
 func CollectFromReader(file io.Reader, scope string, ch chan<- prometheus.Metric) error {
@@ -196,122 +202,69 @@ func NewDovecotExporter(socketPath string, scopes []string) *DovecotExporter {
 	}
 }
 
-func (e *DovecotExporter) Describe(ch chan<- *prometheus.Desc) {
-	ch <- rctlUpDesc
-}
+// collector.go
+//func (e *DovecotExporter) Describe(ch chan<- *prometheus.Desc) {
+//	ch <- rctlUpDesc
+//}
 
-func (e *DovecotExporter) Collect(ch chan<- prometheus.Metric) {
-	for _, scope := range e.scopes {
-		err := CollectFromSocket(e.socketPath, scope, ch)
-		if err == nil {
-			ch <- prometheus.MustNewConstMetric(
-				rctlUpDesc,
-				prometheus.GaugeValue,
-				1.0,
-				scope)
-		} else {
-			log.Printf("Failed to scrape socket: %s", err)
-			ch <- prometheus.MustNewConstMetric(
-				rctlUpDesc,
-				prometheus.GaugeValue,
-				0.0,
-				scope)
-		}
-	}
-}
-
-func getProcessesResources(subject string, filter string) (string, error) {
-	var resrcstr string
-	var err error
-	re, err := regexp.Compile(filter)
-	if err != nil {
-		log.Printf("rctlCollect %s do not compile\n", filter)
-		log.Fatal(err)
-	}
-
-	processList, err := ps.Processes()
-	if err != nil {
-		log.Println("ps.Processes() Failed, are you using windows?")
-		return resrcstr, err
-	}
-	// map ages
-	for x := range processList {
-		var process ps.Process
-
-		process = processList[x]
-
-		if len(re.FindString(process.CommandLine())) > 0 {
-			log.Printf("%d\t%d\t%s\n", process.PPid(), process.Pid(), process.CommandLine())
-			rule := fmt.Sprintf("%s:%d:", subject, process.Pid())
-			resrcstr, err = getRawResourceUsage(rule)
-			log.Printf("%s\n", resrcstr)
-		}
-	}
-	return resrcstr, err
-}
-
-func getUsersResources(subject string, filter string) (string, error) {
-	//re, err := regexp.Compile(filter)
-	//if err != nil {
-	//	log.Printf("rctlCollect %s do not compile\n", filter)
-	//	log.Fatal(err)
-	//}
-
-	// TODO : list all users and support regex
-	rule := fmt.Sprintf("%s:%s", subject, "1001:")
-	resrcstr, err := getRawResourceUsage(rule)
-
-	return resrcstr, err
-}
-
-func getLoginClassResources(subject string, filter string) (string, error) {
-	//re, err := regexp.Compile(filter)
-	//if err != nil {
-	//	log.Printf("rctlCollect %s do not compile\n", filter)
-	//	log.Fatal(err)
-	//}
-
-	// TODO : List login classes to match regex
-	rule := fmt.Sprintf("%s:%s", subject, filter)
-	resrcstr, err := getRawResourceUsage(rule)
-
-	return resrcstr, err
-}
+// collector.go
+//func (e *DovecotExporter) Collect(ch chan<- prometheus.Metric) {
+//		err := CollectFromSocket(e.socketPath, scope, ch)
+//		if err == nil {
+//			ch <- prometheus.MustNewConstMetric(
+//				rctlUpDesc,
+//				prometheus.GaugeValue,
+//				1.0,
+//				scope)
+//		} else {
+//			log.Printf("Failed to scrape socket: %s", err)
+//			ch <- prometheus.MustNewConstMetric(
+//				rctlUpDesc,
+//				prometheus.GaugeValue,
+//				0.0,
+//				scope)
+//		}
+//	}
+//}
 
 func main() {
 	var (
 		app           = kingpin.New("rctl_exporter", "Prometheus metrics exporter for rctl")
 		listenAddress = app.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9166").String()
 		metricsPath   = app.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
-		socketPath    = app.Flag("dovecot.socket-path", "Path under which to expose metrics.").Default("/var/run/dovecot/stats").String()
-		dovecotScopes = app.Flag("dovecot.scopes", "Stats scopes to query (comma separated)").Default("user").String()
+		//		socketPath    = app.Flag("dovecot.socket-path", "Path under which to expose metrics.").Default("/var/run/dovecot/stats").String()
+		//		dovecotScopes = app.Flag("dovecot.scopes", "Stats scopes to query (comma separated)").Default("user").String()
 	)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
+	var results []Resource
+
 	// Boucle principale : On collecte les métriques ciblées
 	for i := range rctlCollect {
-		s := strings.SplitN(rctlCollect[i], ":", 2)
-		subject, filter := s[0], s[1]
-
-		if subject == "process" {
-			getProcessesResources(subject, filter)
-			// getProcessesResources prints values itself
-		} else if subject == "user" {
-			resrc, err := getUsersResources(subject, filter)
-			if err == nil {
-				log.Printf("%s\n", resrc)
-			}
-		} else if subject == "loginclass" {
-			resrc, err := getLoginClassResources(subject, filter)
-			if err == nil {
-				log.Printf("%s\n", resrc)
-			}
-		}
+		//		s := strings.SplitN(rctlCollect[i], ":", 2)
+		//		subject, filter := s[0], s[1]
+		//
+		//		if subject == "process" {
+		//			getProcessesResources(subject, filter)
+		//			// getProcessesResources prints values itself
+		//		} else if subject == "user" {
+		//			resrc, err := getUsersResources(subject, filter)
+		//			if err == nil {
+		//				log.Printf("%s\n", resrc)
+		//			}
+		//		} else if subject == "loginclass" {
+		//			resrc, err := getLoginClassResources(subject, filter)
+		//			if err == nil {
+		//				log.Printf("%s\n", resrc)
+		//			}
+		//		}
+		results = append(results, NewResourceManager(rctlCollect[i], log))
 	}
 	// FIN Boucle principale
-
-	exporter := NewDovecotExporter(*socketPath, strings.Split(*dovecotScopes, ","))
-	prometheus.MustRegister(exporter)
+	coll := collector.New(results)
+	prometheus.MustRegister(coll)
+	//exporter := NewDovecotExporter(*socketPath, strings.Split(*dovecotScopes, ","))
+	//prometheus.MustRegister(exporter)
 
 	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
