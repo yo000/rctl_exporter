@@ -16,9 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	// local import, see go.mod
-	"coincoin.org/rctl_exporter/collector"
-
+	"git.nosd.in/yo/rctl_exporter/collector"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"

@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	// local import, see go.mod
-	"coincoin.org/rctl_exporter"
+	"git.nosd.in/yo/rctl_exporter"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
