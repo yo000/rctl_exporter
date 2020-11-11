@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"git.nosd.in/yo/rctl_exporter/collector"
+	"git.nosd.in/yo/rctl_exporter/rctl"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -235,31 +236,24 @@ func main() {
 	)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
-	var results []Resource
+	var results []rctl.Resource
 
-	// Boucle principale : On collecte les métriques ciblées
+	log.SetLevel(logrus.DebugLevel)
+
+	// On collecte les métriques ciblées
 	for i := range rctlCollect {
-		//		s := strings.SplitN(rctlCollect[i], ":", 2)
-		//		subject, filter := s[0], s[1]
-		//
-		//		if subject == "process" {
-		//			getProcessesResources(subject, filter)
-		//			// getProcessesResources prints values itself
-		//		} else if subject == "user" {
-		//			resrc, err := getUsersResources(subject, filter)
-		//			if err == nil {
-		//				log.Printf("%s\n", resrc)
-		//			}
-		//		} else if subject == "loginclass" {
-		//			resrc, err := getLoginClassResources(subject, filter)
-		//			if err == nil {
-		//				log.Printf("%s\n", resrc)
-		//			}
-		//		}
-		results = append(results, NewResourceManager(rctlCollect[i], log))
+		ra, err := rctl.NewResourceManager(rctlCollect[i], log)
+		if err != nil {
+			log.Error("Error getting resources : %d", err)
+		}
+		for _, r := range ra {
+			log.Info("Adding resource : " + r.GetProcessCommandLine())
+			results = append(results, r)
+		}
 	}
+
 	// FIN Boucle principale
-	coll := collector.New(results)
+	coll := collector.New(results, log)
 	prometheus.MustRegister(coll)
 	//exporter := NewDovecotExporter(*socketPath, strings.Split(*dovecotScopes, ","))
 	//prometheus.MustRegister(exporter)
