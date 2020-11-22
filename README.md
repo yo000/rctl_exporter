@@ -2,12 +2,11 @@
 
 rctl_exporter is a Prometheus exporter for FreeBSD RCTL/RACCT metrics. It can collect metrics of all items, or specific ones targeted in the config.  
 
-It support following items :
+It support all items rctl supports :
   - process
   - user
   - jail
-
-loginclass metrics is on the TODO list.
+  - loginclass
 
 - - - -
 
