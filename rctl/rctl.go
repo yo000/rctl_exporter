@@ -516,7 +516,7 @@ func getLoginClasses() ([]string, error) {
 		if len(line) > 0 && strings.HasPrefix(string(line), "#") == false && strings.HasPrefix(string(line), " ") == false {
 			s := strings.Split(string(line), ":")
 			if len(s) == 2 {
-				lc := s[0]
+				lc := strings.Split(s[0], "|")[0]
 				log.Debug("Appending loginclass " + lc)
 				lcs = append(lcs, lc)
 			}
