@@ -1,8 +1,16 @@
 // Copyright 2020, johan@nosd.in
 // +build freebsd
-
+//
+// Use libjail.so to get/set jail params
 package rctl
 
+/*
+#cgo CFLAGS: -I /usr/lib
+#cgo LDFLAGS: -L. -ljail
+#include <stdlib.h>
+#include <jail.h>
+*/
+import "C"
 import (
 	"errors"
 	"fmt"
@@ -23,7 +31,7 @@ var (
 	GLog *logrus.Logger
 
 	// Supported rctl subjects
-	SUPPORTED_SUBJECTS = []string{"process", "user", "loginclass"}
+	SUPPORTED_SUBJECTS = []string{"process", "user", "loginclass", "jail"}
 )
 
 const (
@@ -36,201 +44,60 @@ const (
 	SYS_RCTL_GET_RACCT = 525
 )
 
+// Resource : Represent a resource and its usage as reported by rctl(8)
 type Resource struct {
-	resrctype       int    // Resource type : process, jail, loginclass or user
-	resrcid         string // Resource identifier : PID, UID, jail name or loginclass from login.conf
-	processppid     int    // For process type, this is the PPID
-	processcmdline  string // For process type, this is the full command line with path and args
-	username        string // For user type, this is the username
-	rawresources    string // Raw string resources, as returned by rctl binary
-	cputime         int    // CPU time, in seconds
-	datasize        int    // data size, in bytes
-	stacksize       int    // stack size, in bytes
-	coredumpsize    int    // core dump size, in bytes
-	memoryuse       int    // resident set size, in bytes
-	memorylocked    int    // locked memory, in bytes
-	maxproc         int    // number of processes
-	openfiles       int    // file descriptor table size
-	vmemoryuse      int    // address space limit, in bytes
-	pseudoterminals int    // number of PTYs
-	swapuse         int    // swap space that may be reserved or used, in bytes
-	nthr            int    // number of threads
-	msgqqueued      int    // number of queued SysV messages
-	msgqsize        int    // SysV message queue size, in bytes
-	nmsgq           int    // number of SysV message queues
-	nsem            int    // number of SysV semaphores
-	nsemop          int    // number of SysV semaphores modified in a single semop(2) call
-	nshm            int    // number of SysV shared memory segments
-	shmsize         int    // SysV shared memory size, in bytes
-	wallclock       int    // wallclock time, in seconds
-	pcpu            int    // %CPU, in percents of a single CPU core
-	readbps         int    // filesystem reads, in bytes per second
-	writebps        int    // filesystem writes, in bytes per second
-	readiops        int    // filesystem reads, in operations per seconds
-	writeiops       int    // filesystem writes, in operations per seconds
+	ResourceType    int    // Resource type : process, jail, loginclass or user
+	ResourceID      string // Resource identifier : PID, UID, jail name or loginclass from login.conf
+	ProcessPPid     int    // For process type, this is the PPID
+	ProcessCmdLine  string // For process type, this is the full command line with path and args
+	UserName        string // For user type, this is the username
+	JailName        string // For jail type, this is the jail name as seen by "jls -N" (JID column)
+	RawResources    string // Raw string resources, as returned by rctl binary
+	CPUTime         int    // CPU time, in seconds
+	DataSize        int    // data size, in bytes
+	StackSize       int    // stack size, in bytes
+	CoreDumpSize    int    // core dump size, in bytes
+	MemoryUse       int    // resident set size, in bytes
+	MemoryLocked    int    // locked memory, in bytes
+	MaxProc         int    // number of processes
+	OpenFiles       int    // file descriptor table size
+	VMemoryUse      int    // address space limit, in bytes
+	PseudoTerminals int    // number of PTYs
+	SwapUse         int    // swap space that may be reserved or used, in bytes
+	NThr            int    // number of threads
+	MsgQQueued      int    // number of queued SysV messages
+	MsgQSize        int    // SysV message queue size, in bytes
+	NMsgQ           int    // number of SysV message queues
+	NSem            int    // number of SysV semaphores
+	NSemop          int    // number of SysV semaphores modified in a single semop(2) call
+	NShm            int    // number of SysV shared memory segments
+	ShmSize         int    // SysV shared memory size, in bytes
+	WallClock       int    // wallclock time, in seconds
+	PCpu            int    // %CPU, in percents of a single CPU core
+	ReadBps         int    // filesystem reads, in bytes per second
+	WriteBps        int    // filesystem writes, in bytes per second
+	ReadIops        int    // filesystem reads, in operations per seconds
+	WriteIops       int    // filesystem writes, in operations per seconds
 }
 
+// ResourceMgr : Contains resources filters and an array of resources
 type ResourceMgr struct {
 	resrcesfilter []string
 	log           *logrus.Logger
-	resources     []Resource
+	Resources     []Resource
 }
 
-type User struct {
+type user struct {
 	name string
 	uid  int
 }
 
-func (r *Resource) GetResourceType() int {
-	return r.resrctype
+type jail struct {
+	name string
+	jid  int
 }
 
-func (r *Resource) GetID() string {
-	return r.resrcid
-}
-
-func (r *Resource) SetID(id string) {
-	r.resrcid = id
-}
-
-func (r *Resource) GetProcessPPID() int {
-	if r.resrctype == RESRC_PROCESS {
-		return r.processppid
-	}
-	return -1
-}
-
-func (r *Resource) GetProcessCommandLine() string {
-	if r.resrctype == RESRC_PROCESS {
-		return r.processcmdline
-	}
-	return ""
-}
-
-func (r *Resource) GetUserName() string {
-	if r.resrctype == RESRC_USER {
-		return r.username
-	}
-	return ""
-}
-
-func (r *Resource) SetUserName(uname string) error {
-	var err error
-	if r.resrctype == RESRC_USER {
-		r.username = uname
-		return err
-	}
-	return errors.New("Resource is not of type user")
-}
-
-func (r *Resource) GetRawResources() string {
-	return r.rawresources
-}
-
-func (r *Resource) CpuTime() int {
-	return r.cputime
-}
-
-func (r *Resource) DataSize() int {
-	return r.datasize
-}
-
-func (r *Resource) StackSize() int {
-	return r.stacksize
-}
-
-func (r *Resource) CoreDumpSize() int {
-	return r.coredumpsize
-}
-
-func (r *Resource) MemoryUse() int {
-	return r.memoryuse
-}
-
-func (r *Resource) MemoryLocked() int {
-	return r.memorylocked
-}
-
-func (r *Resource) MaxProc() int {
-	return r.maxproc
-}
-
-func (r *Resource) OpenFiles() int {
-	return r.openfiles
-}
-
-func (r *Resource) VMemoryUse() int {
-	return r.vmemoryuse
-}
-
-func (r *Resource) PseudoTerminals() int {
-	return r.pseudoterminals
-}
-
-func (r *Resource) SwapUse() int {
-	return r.swapuse
-}
-
-func (r *Resource) NrThread() int {
-	return r.nthr
-}
-
-func (r *Resource) MsqQueued() int {
-	return r.msgqqueued
-}
-
-func (r *Resource) MsgQueueSize() int {
-	return r.msgqsize
-}
-
-func (r *Resource) NrMsgQueues() int {
-	return r.nmsgq
-}
-
-func (r *Resource) NrSemaphores() int {
-	return r.nsem
-}
-
-func (r *Resource) NrSemaphoresSemop() int {
-	return r.nsemop
-}
-
-func (r *Resource) NrShm() int {
-	return r.nshm
-}
-
-func (r *Resource) ShmSize() int {
-	return r.shmsize
-}
-
-func (r *Resource) WallClock() int {
-	return r.wallclock
-}
-
-func (r *Resource) PCpu() int {
-	return r.pcpu
-}
-
-func (r *Resource) ReadBps() int {
-	return r.readbps
-}
-
-func (r *Resource) WriteBps() int {
-	return r.writebps
-}
-
-func (r *Resource) ReadIops() int {
-	return r.readiops
-}
-
-func (r *Resource) WriteIops() int {
-	return r.writeiops
-}
-
-func (r *ResourceMgr) GetResources() []Resource {
-	return r.resources
-}
-
+// Refresh : Refreshes resources usage
 func (r *ResourceMgr) Refresh() (*ResourceMgr, error) {
 	var results []Resource
 	var err error
@@ -244,13 +111,13 @@ func (r *ResourceMgr) Refresh() (*ResourceMgr, error) {
 		subject, filter := s[0], s[1]
 
 		if subject == "process" {
-			res, err := getProcessesResources(subject, filter)
+			res, err := getProcessResources(subject, filter)
 			if err != nil {
 				return r, err
 			}
 			results = append(results, res...)
 		} else if subject == "user" {
-			res, err := getUsersResources(subject, filter)
+			res, err := getUserResources(subject, filter)
 			if err != nil {
 				return r, err
 			}
@@ -261,50 +128,18 @@ func (r *ResourceMgr) Refresh() (*ResourceMgr, error) {
 				return r, err
 			}
 			results = append(results, res...)
+		} else if subject == "jail" {
+			res, err := getJailResources(subject, filter)
+			if err != nil {
+				return r, err
+			}
+			results = append(results, res...)
 		}
 	}
 
-	r.resources = results
+	r.Resources = results
 
 	return r, err
-}
-
-func call_syscall(mib []int32) ([]byte, uint64, error) {
-	miblen := uint64(len(mib))
-
-	// get required buffer size
-	length := uint64(0)
-	_, _, err := syscall.RawSyscall6(
-		syscall.SYS___SYSCTL,
-		uintptr(unsafe.Pointer(&mib[0])),
-		uintptr(miblen),
-		0,
-		uintptr(unsafe.Pointer(&length)),
-		0,
-		0)
-	if err != 0 {
-		b := make([]byte, 0)
-		return b, length, err
-	}
-	if length == 0 {
-		b := make([]byte, 0)
-		return b, length, err
-	}
-	// get proc info itself
-	buf := make([]byte, length)
-	_, _, err = syscall.RawSyscall6(
-		syscall.SYS___SYSCTL,
-		uintptr(unsafe.Pointer(&mib[0])),
-		uintptr(miblen),
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(unsafe.Pointer(&length)),
-		0,
-		0)
-	if err != 0 {
-		return buf, length, err
-	}
-
-	return buf, length, nil
 }
 
 // Check rule subject is valid and supported
@@ -353,24 +188,24 @@ func rctlGetRacct(rule string) (string, error) {
 }
 
 // Parses rctl_get_racct return to fill Resource structure
-func parse_resource(subject string, resrc string) Resource {
+func parseResource(subject string, resrc string) Resource {
 	var result Resource
 
 	if subject == "process" {
-		result.resrctype = RESRC_PROCESS
+		result.ResourceType = RESRC_PROCESS
 	}
 	if subject == "user" {
-		result.resrctype = RESRC_USER
+		result.ResourceType = RESRC_USER
 	}
 	if subject == "loginclass" {
-		result.resrctype = RESRC_LOGINCLASS
+		result.ResourceType = RESRC_LOGINCLASS
 	}
 	if subject == "jail" {
-		result.resrctype = RESRC_JAIL
+		result.ResourceType = RESRC_JAIL
 	}
 
 	// Save raw result...
-	result.rawresources = resrc
+	result.RawResources = resrc
 
 	// ...then parse into fields
 	for _, r := range strings.Split(resrc, ",") {
@@ -379,79 +214,79 @@ func parse_resource(subject string, resrc string) Resource {
 			return result
 		}
 		if s[0] == "cputime" {
-			result.cputime, _ = strconv.Atoi(s[1])
+			result.CPUTime, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "datasize" {
-			result.datasize, _ = strconv.Atoi(s[1])
+			result.DataSize, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "stacksize" {
-			result.stacksize, _ = strconv.Atoi(s[1])
+			result.StackSize, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "coredumpsize" {
-			result.coredumpsize, _ = strconv.Atoi(s[1])
+			result.CoreDumpSize, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "memoryuse" {
-			result.memoryuse, _ = strconv.Atoi(s[1])
+			result.MemoryUse, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "memorylocked" {
-			result.memorylocked, _ = strconv.Atoi(s[1])
+			result.MemoryLocked, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "maxproc" {
-			result.maxproc, _ = strconv.Atoi(s[1])
+			result.MaxProc, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "openfiles" {
-			result.openfiles, _ = strconv.Atoi(s[1])
+			result.OpenFiles, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "vmemoryuse" {
-			result.vmemoryuse, _ = strconv.Atoi(s[1])
+			result.VMemoryUse, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "pseudoterminals" {
-			result.pseudoterminals, _ = strconv.Atoi(s[1])
+			result.PseudoTerminals, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "swapuse" {
-			result.swapuse, _ = strconv.Atoi(s[1])
+			result.SwapUse, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "nthr" {
-			result.nthr, _ = strconv.Atoi(s[1])
+			result.NThr, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "msgqqueued" {
-			result.msgqqueued, _ = strconv.Atoi(s[1])
+			result.MsgQQueued, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "msgqsize" {
-			result.msgqsize, _ = strconv.Atoi(s[1])
+			result.MsgQSize, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "nmsgq" {
-			result.nmsgq, _ = strconv.Atoi(s[1])
+			result.NMsgQ, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "nsem" {
-			result.nsem, _ = strconv.Atoi(s[1])
+			result.NSem, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "nsemop" {
-			result.nsemop, _ = strconv.Atoi(s[1])
+			result.NSemop, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "nshm" {
-			result.nshm, _ = strconv.Atoi(s[1])
+			result.NShm, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "shmsize" {
-			result.shmsize, _ = strconv.Atoi(s[1])
+			result.ShmSize, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "wallclock" {
-			result.wallclock, _ = strconv.Atoi(s[1])
+			result.WallClock, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "pcpu" {
-			result.pcpu, _ = strconv.Atoi(s[1])
+			result.PCpu, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "readbps" {
-			result.readbps, _ = strconv.Atoi(s[1])
+			result.ReadBps, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "writebps" {
-			result.writebps, _ = strconv.Atoi(s[1])
+			result.WriteBps, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "readiops" {
-			result.readiops, _ = strconv.Atoi(s[1])
+			result.ReadIops, _ = strconv.Atoi(s[1])
 		}
 		if s[0] == "writeiops" {
-			result.writeiops, _ = strconv.Atoi(s[1])
+			result.WriteIops, _ = strconv.Atoi(s[1])
 		}
 	}
 
@@ -484,7 +319,7 @@ func getResourceUsage(rule string) (Resource, error) {
 		return result, err
 	}
 
-	result = parse_resource(subject, buf)
+	result = parseResource(subject, buf)
 
 	//log.Info("Returned resources as raw : " + result.GetRawResources())
 
@@ -492,7 +327,7 @@ func getResourceUsage(rule string) (Resource, error) {
 }
 
 // Get Resources for a process, then glue process informations to Resource structure
-func getProcessesResources(subject string, filter string) ([]Resource, error) {
+func getProcessResources(subject string, filter string) ([]Resource, error) {
 	var results []Resource
 	var err error
 
@@ -518,51 +353,45 @@ func getProcessesResources(subject string, filter string) ([]Resource, error) {
 				log.Error("Error while getting resource usage for rule : " + rule)
 				return results, err
 			}
-			r.SetID(strconv.Itoa(process.Pid()))
-			r.processppid = process.PPid()
-			r.processcmdline = process.CommandLine()
+			r.ResourceID = strconv.Itoa(process.Pid())
+			r.ProcessPPid = process.PPid()
+			r.ProcessCmdLine = process.CommandLine()
 			results = append(results, r)
-			//log.Info("Added " + r.GetProcessCommandLine() + " with resources : " + r.GetRawResources())
+			log.Debug("Added " + r.ProcessCmdLine + " with resources : " + r.RawResources)
 		}
 	}
 	return results, err
 }
 
-func getUsersFromPasswd() ([]User, error) {
-	var user User
-	var users []User
+func getUsersFromPasswd() ([]user, error) {
+	var usr user
+	var usrs []user
 
 	data, err := ioutil.ReadFile("/etc/passwd")
 	if err != nil {
-		return users, err
+		return usrs, err
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		if len(line) > 0 && strings.HasPrefix(string(line), "#") == false {
 			s := strings.Split(string(line), ":")
 			if len(s) > 0 {
 				if strings.Count(string(s[0]), "") > 0 {
-					user.name = s[0]
-					user.uid, _ = strconv.Atoi(s[2])
-					log.Debug("Appending user " + user.name + " with UID " + strconv.Itoa(user.uid))
-					users = append(users, user)
+					usr.name = s[0]
+					usr.uid, _ = strconv.Atoi(s[2])
+					log.Debug("Appending user " + usr.name + " with UID " + strconv.Itoa(usr.uid))
+					usrs = append(usrs, usr)
 				}
 			}
 		}
 	}
 
-	return users, err
+	return usrs, err
 }
 
-// TODO : Return ([]Resource, error), list users and support regex
-func getUsersResources(subject string, filter string) ([]Resource, error) {
+func getUserResources(subject string, filter string) ([]Resource, error) {
 	var resources []Resource
-	//re, err := regexp.Compile(filter)
-	//if err != nil {
-	//	log.Printf("rctlCollect %s do not compile\n", filter)
-	//	log.Fatal(err)
-	//}
 
-	users, err := getUsersFromPasswd()
+	usrs, err := getUsersFromPasswd()
 	if err != nil {
 		return resources, err
 	}
@@ -571,17 +400,17 @@ func getUsersResources(subject string, filter string) ([]Resource, error) {
 		log.Fatal("rctlCollect %s do not compile", filter)
 	}
 
-	for _, user := range users {
-		if len(re.FindString(user.name)) > 0 {
-			rule := fmt.Sprintf("%s:%d:", subject, user.uid)
+	for _, usr := range usrs {
+		if len(re.FindString(usr.name)) > 0 {
+			rule := fmt.Sprintf("%s:%d:", subject, usr.uid)
 			log.Debug("Rule : " + rule)
 			r, err := getResourceUsage(rule)
 			if err != nil {
 				log.Error("Error while getting resource usage for rule : " + rule)
 				return resources, err
 			}
-			r.SetID(strconv.Itoa(user.uid))
-			r.SetUserName(user.name)
+			r.ResourceID = strconv.Itoa(usr.uid)
+			r.UserName = usr.name
 			resources = append(resources, r)
 			//log.Info("Added " + r.GetUserName() + " with resources : " + r.GetRawResources())
 		}
@@ -589,7 +418,96 @@ func getUsersResources(subject string, filter string) ([]Resource, error) {
 
 	if false {
 		for _, r := range resources {
-			log.Info("Returning resource " + r.GetRawResources() + " for filter/ID " + filter + "/" + r.GetID())
+			log.Info("Returning resource " + r.RawResources + " for filter/ID " + filter + "/" + r.ResourceID)
+		}
+	}
+
+	return resources, err
+}
+
+// We can not use jail_getv ou jail_setv because they are variadic C functions (would need a C wrapper)
+func getJails() ([]jail, error) {
+	var jls []jail
+	var jl jail
+	var err error
+
+	params := make([]C.struct_jailparam, 3)
+
+	// initialize parameter names
+	csname := C.CString("name")
+	defer C.free(unsafe.Pointer(csname))
+	csjid := C.CString("jid")
+	defer C.free(unsafe.Pointer(csjid))
+	cslastjid := C.CString("lastjid")
+	defer C.free(unsafe.Pointer(cslastjid))
+
+	// initialize params struct with parameter names
+	C.jailparam_init(&params[0], csname)
+	C.jailparam_init(&params[1], csjid)
+
+	// The key to retrive jail. lastjid = 0 returns first jail and its jid as jailparam_get return value
+	C.jailparam_init(&params[2], cslastjid)
+
+	lastjailid := 0
+	cslastjidval := C.CString(strconv.Itoa(lastjailid))
+	defer C.free(unsafe.Pointer(cslastjidval))
+
+	C.jailparam_import(&params[2], cslastjidval)
+
+	// loop on existing jails
+	for lastjailid >= 0 {
+		// get parameter values
+		lastjailid = int(C.jailparam_get(&params[0], 3, 0))
+		if lastjailid > 0 {
+			nametmp := C.jailparam_export(&params[0])
+			jl.name = C.GoString(nametmp)
+			jl.jid, _ = strconv.Atoi(C.GoString(C.jailparam_export(&params[1])))
+			jls = append(jls, jl)
+			//log.Debug("Got jid " + strconv.Itoa(jl.jid) + " with name " + jl.name)
+
+			// Prepare next loop iteration
+			cslastjidval := C.CString(strconv.Itoa(lastjailid))
+			defer C.free(unsafe.Pointer(cslastjidval))
+			C.jailparam_import(&params[2], cslastjidval)
+		}
+	}
+
+	C.jailparam_free(&params[0], 3)
+
+	return jls, err
+}
+
+func getJailResources(subject string, filter string) ([]Resource, error) {
+	var resources []Resource
+
+	jls, err := getJails()
+	if err != nil {
+		return resources, err
+	}
+	re, err := regexp.Compile(filter)
+	if err != nil {
+		log.Fatal("rctlCollect %s do not compile", filter)
+	}
+
+	for _, jl := range jls {
+		if len(re.FindString(jl.name)) > 0 {
+			rule := fmt.Sprintf("%s:%s", subject, jl.name)
+			log.Debug("Rule : " + rule)
+			r, err := getResourceUsage(rule)
+			if err != nil {
+				log.Error("Error while getting resource usage for rule : " + rule)
+				return resources, err
+			}
+			r.ResourceID = strconv.Itoa(jl.jid)
+			r.JailName = jl.name
+			resources = append(resources, r)
+			log.Debug("Added " + r.JailName + " with resources : " + r.RawResources)
+		}
+	}
+
+	if false {
+		for _, r := range resources {
+			log.Info("Returning resource " + r.RawResources + " for filter/ID " + filter + "/" + r.ResourceID)
 		}
 	}
 

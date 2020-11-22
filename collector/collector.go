@@ -59,9 +59,9 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 
 	c.resmgr.Refresh()
 
-	for _, resrcObj := range c.resmgr.GetResources() {
-		if resrcObj.GetResourceType() == rctl.RESRC_PROCESS {
-			rawresrces := resrcObj.GetRawResources()
+	for _, resrcObj := range c.resmgr.Resources {
+		if resrcObj.ResourceType == rctl.RESRC_PROCESS {
+			rawresrces := resrcObj.RawResources
 			rawresrc := strings.Split(rawresrces, ",")
 			for _, resrc := range rawresrc {
 				s := strings.SplitN(resrc, "=", 2)
@@ -74,9 +74,9 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 							log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
 							return err
 						}
-						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.GetID(), resrcObj.GetProcessCommandLine())
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.ResourceID, resrcObj.ProcessCmdLine)
 					} else {
-						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.GetID(), resrcObj.GetProcessCommandLine())
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.ResourceID, resrcObj.ProcessCmdLine)
 					}
 				} else {
 					log.Error("resource format is incorrect : " + resrc)
@@ -84,8 +84,8 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 				}
 
 			}
-		} else if resrcObj.GetResourceType() == rctl.RESRC_USER {
-			rawresrces := resrcObj.GetRawResources()
+		} else if resrcObj.ResourceType == rctl.RESRC_USER {
+			rawresrces := resrcObj.RawResources
 			rawresrc := strings.Split(rawresrces, ",")
 			for _, resrc := range rawresrc {
 				s := strings.SplitN(resrc, "=", 2)
@@ -98,9 +98,32 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 							log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
 							return err
 						}
-						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.GetID(), resrcObj.GetUserName())
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.ResourceID, resrcObj.UserName)
 					} else {
-						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.GetID(), resrcObj.GetUserName())
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.ResourceID, resrcObj.UserName)
+					}
+				} else {
+					log.Error("resource format is incorrect : " + resrc)
+					return fmt.Errorf("Resource incorrect format : %s", resrc)
+				}
+			}
+		} else if resrcObj.ResourceType == rctl.RESRC_JAIL {
+			rawresrces := resrcObj.RawResources
+			rawresrc := strings.Split(rawresrces, ",")
+			for _, resrc := range rawresrc {
+				s := strings.SplitN(resrc, "=", 2)
+				if len(s) == 2 {
+					d := prometheus.NewDesc("rctl_usage_jail_"+s[0], "man rctl", []string{"jid", "name"}, nil)
+					if len(s[1]) > 0 && s[1] != "0" {
+						v, err := strconv.ParseFloat(s[1], 64)
+						//v, err := strconv.ParseInt(s[1], 10, 64)
+						if err != nil {
+							log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
+							return err
+						}
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.ResourceID, resrcObj.JailName)
+					} else {
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.ResourceID, resrcObj.JailName)
 					}
 				} else {
 					log.Error("resource format is incorrect : " + resrc)

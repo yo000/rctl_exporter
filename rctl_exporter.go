@@ -26,9 +26,10 @@ var (
 //var processFilter = [1]string{"process:^sshd"}
 //var rctlCollect = []string{"process:.*"}
 
-var rctlCollect = []string{"process:.*", "user:^yo$"}
+var rctlCollect = []string{"process:.*", "user:^yo$", "jail:ioc-testarp"}
 
 //var rctlCollect = []string{"loginclass:daemon"}
+//var rctlCollect = []string{"jail:ioc-testarp"}
 
 func main() {
 	var results []rctl.Resource
@@ -36,16 +37,20 @@ func main() {
 		app           = kingpin.New("rctl_exporter", "Prometheus metrics exporter for rctl")
 		listenAddress = app.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9166").String()
 		metricsPath   = app.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
-		//		socketPath    = app.Flag("dovecot.socket-path", "Path under which to expose metrics.").Default("/var/run/dovecot/stats").String()
-		//		dovecotScopes = app.Flag("dovecot.scopes", "Stats scopes to query (comma separated)").Default("user").String()
+		//debug         = app.Flag("debug", "Enable debug mode").Bool()
 	)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
+
+	// Do not work. Why?
+	/*if *debug == true {
+		log.SetLevel(logrus.DebugLevel)
+	}*/
 
 	rmgr, err := rctl.NewResourceManager(rctlCollect, log)
 	if err != nil {
 		log.Error("Error getting resources : %d", err)
 	}
-	for _, r := range rmgr.GetResources() {
+	for _, r := range rmgr.Resources {
 		results = append(results, r)
 	}
 
