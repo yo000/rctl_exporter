@@ -8,7 +8,7 @@ Jail, user and loginclass metrics are on the TODO list.
 
 # Prerequesites
 
-RACCT/RCTL should be enabled on the host. Enable with tunable "kern.racct.enable=1"
+RACCT/RCTL should be enabled on the host. Enable with tunable "kern.racct.enable=1", then reboot.
 
 - - - -
 
