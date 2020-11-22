@@ -8,6 +8,7 @@ package main
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"git.nosd.in/yo/rctl_exporter/collector"
 	"git.nosd.in/yo/rctl_exporter/rctl"
@@ -35,9 +36,10 @@ var rctlCollect = []string{"process:.*", "user:.*", "jail:.*", "loginclass:.*"}
 func main() {
 	var results []rctl.Resource
 	var (
-		app           = kingpin.New("rctl_exporter", "Prometheus metrics exporter for rctl")
-		listenAddress = app.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9166").String()
-		metricsPath   = app.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
+		app            = kingpin.New("rctl_exporter", "Prometheus metrics exporter for rctl")
+		listenAddress  = app.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9166").String()
+		metricsPath    = app.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
+		rctlCollectArg = app.Flag("rctl.filter", "Filter for rctl collection. Ex: \"process:.*java.*,user:git\"").Default("user:.*").String()
 		//debug         = app.Flag("debug", "Enable debug mode").Bool()
 	)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
@@ -46,6 +48,10 @@ func main() {
 	/*if *debug == true {
 		log.SetLevel(logrus.DebugLevel)
 	}*/
+
+	if *rctlCollectArg != "user:.*" {
+		rctlCollect = strings.Split(*rctlCollectArg, ",")
+	}
 
 	rmgr, err := rctl.NewResourceManager(rctlCollect, log)
 	if err != nil {
