@@ -50,6 +50,7 @@ type Resource struct {
 	ResourceID      string // Resource identifier : PID, UID, jail name or loginclass from login.conf
 	ProcessPPid     int    // For process type, this is the PPID
 	ProcessCmdLine  string // For process type, this is the full command line with path and args
+	ProcessName     string // For process type, this is the binary name
 	UserName        string // For user type, this is the username
 	JailName        string // For jail type, this is the jail name as seen by "jls -N" (JID column)
 	LoginClassName  string // For loginclass type, this is the loginclass name as in login.conf
@@ -356,6 +357,7 @@ func getProcessResources(subject string, filter string) ([]Resource, error) {
 			}
 			r.ResourceID = strconv.Itoa(process.Pid())
 			r.ProcessPPid = process.PPid()
+			r.ProcessName = process.Executable()
 			r.ProcessCmdLine = process.CommandLine()
 			results = append(results, r)
 			log.Debug("Added process " + r.ProcessCmdLine + " with resources : " + r.RawResources)

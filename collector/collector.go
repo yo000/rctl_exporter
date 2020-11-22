@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"git.nosd.in/yo/rctl_exporter/rctl"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
+	"github.com/yo000/rctl_exporter/rctl"
 )
 
 type Collector struct {
@@ -66,7 +66,7 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 			for _, resrc := range rawresrc {
 				s := strings.SplitN(resrc, "=", 2)
 				if len(s) == 2 {
-					d := prometheus.NewDesc("rctl_usage_process_"+s[0], "man rctl", []string{"pid", "cmdline"}, nil)
+					d := prometheus.NewDesc("rctl_usage_process_"+s[0], "man rctl", []string{"pid", "name", "cmdline"}, nil)
 					if len(s[1]) > 0 && s[1] != "0" {
 						v, err := strconv.ParseFloat(s[1], 64)
 						//v, err := strconv.ParseInt(s[1], 10, 64)
@@ -74,9 +74,9 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 							log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
 							return err
 						}
-						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.ResourceID, resrcObj.ProcessCmdLine)
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.ResourceID, resrcObj.ProcessName, resrcObj.ProcessCmdLine)
 					} else {
-						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.ResourceID, resrcObj.ProcessCmdLine)
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.ResourceID, resrcObj.ProcessName, resrcObj.ProcessCmdLine)
 					}
 				} else {
 					log.Error("resource format is incorrect : " + resrc)

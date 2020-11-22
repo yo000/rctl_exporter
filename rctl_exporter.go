@@ -10,11 +10,11 @@ import (
 	"os"
 	"strings"
 
-	"git.nosd.in/yo/rctl_exporter/collector"
-	"git.nosd.in/yo/rctl_exporter/rctl"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/yo000/rctl_exporter/collector"
+	"github.com/yo000/rctl_exporter/rctl"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
