@@ -28,12 +28,17 @@ go build
 
 # Usage
 
-Resources to monitor are specified in the configuration file. There is 4 resources types (see man page of rctl).
+Resources to monitor are specified in the "rctl.filter" argument. There is 4 resources types (see man page of rctl).
 Each resource can be specified using regexp :
 ```
-rctl_collect:
   - 'process:^java.*'
   - 'user:yo$'
   - 'jail:mongo'
 ```
+Different resource types can be monitored, separated by comma :
+```
+rctl_exporter --rctl.filter="process:^java.*,user:^yo$,jail:mongo"
+```
+
+Avoid monitoring all processes, as it would create lots of time series and impact prometheus
 
