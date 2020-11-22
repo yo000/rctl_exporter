@@ -130,6 +130,29 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 					return fmt.Errorf("Resource incorrect format : %s", resrc)
 				}
 			}
+		} else if resrcObj.ResourceType == rctl.RESRC_LOGINCLASS {
+			rawresrces := resrcObj.RawResources
+			rawresrc := strings.Split(rawresrces, ",")
+			for _, resrc := range rawresrc {
+				s := strings.SplitN(resrc, "=", 2)
+				if len(s) == 2 {
+					d := prometheus.NewDesc("rctl_usage_loginclass_"+s[0], "man rctl", []string{"name"}, nil)
+					if len(s[1]) > 0 && s[1] != "0" {
+						v, err := strconv.ParseFloat(s[1], 64)
+						//v, err := strconv.ParseInt(s[1], 10, 64)
+						if err != nil {
+							log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
+							return err
+						}
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.LoginClassName)
+					} else {
+						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.LoginClassName)
+					}
+				} else {
+					log.Error("resource format is incorrect : " + resrc)
+					return fmt.Errorf("Resource incorrect format : %s", resrc)
+				}
+			}
 		}
 	}
 

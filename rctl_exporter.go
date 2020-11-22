@@ -26,7 +26,8 @@ var (
 //var processFilter = [1]string{"process:^sshd"}
 //var rctlCollect = []string{"process:.*"}
 
-var rctlCollect = []string{"process:.*", "user:^yo$", "jail:ioc-testarp"}
+//var rctlCollect = []string{"process:.*", "user:^yo$", "jail:ioc-testarp", "loginclass:.*"}
+var rctlCollect = []string{"process:.*", "user:.*", "jail:.*", "loginclass:.*"}
 
 //var rctlCollect = []string{"loginclass:daemon"}
 //var rctlCollect = []string{"jail:ioc-testarp"}

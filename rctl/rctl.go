@@ -52,6 +52,7 @@ type Resource struct {
 	ProcessCmdLine  string // For process type, this is the full command line with path and args
 	UserName        string // For user type, this is the username
 	JailName        string // For jail type, this is the jail name as seen by "jls -N" (JID column)
+	LoginClassName  string // For loginclass type, this is the loginclass name as in login.conf
 	RawResources    string // Raw string resources, as returned by rctl binary
 	CPUTime         int    // CPU time, in seconds
 	DataSize        int    // data size, in bytes
@@ -357,12 +358,13 @@ func getProcessResources(subject string, filter string) ([]Resource, error) {
 			r.ProcessPPid = process.PPid()
 			r.ProcessCmdLine = process.CommandLine()
 			results = append(results, r)
-			log.Debug("Added " + r.ProcessCmdLine + " with resources : " + r.RawResources)
+			log.Debug("Added process " + r.ProcessCmdLine + " with resources : " + r.RawResources)
 		}
 	}
 	return results, err
 }
 
+// get current users from /etc/passwd
 func getUsersFromPasswd() ([]user, error) {
 	var usr user
 	var usrs []user
@@ -412,13 +414,7 @@ func getUserResources(subject string, filter string) ([]Resource, error) {
 			r.ResourceID = strconv.Itoa(usr.uid)
 			r.UserName = usr.name
 			resources = append(resources, r)
-			//log.Info("Added " + r.GetUserName() + " with resources : " + r.GetRawResources())
-		}
-	}
-
-	if false {
-		for _, r := range resources {
-			log.Info("Returning resource " + r.RawResources + " for filter/ID " + filter + "/" + r.ResourceID)
+			log.Debug("Added user " + r.UserName + " with resources : " + r.RawResources)
 		}
 	}
 
@@ -501,31 +497,63 @@ func getJailResources(subject string, filter string) ([]Resource, error) {
 			r.ResourceID = strconv.Itoa(jl.jid)
 			r.JailName = jl.name
 			resources = append(resources, r)
-			log.Debug("Added " + r.JailName + " with resources : " + r.RawResources)
-		}
-	}
-
-	if false {
-		for _, r := range resources {
-			log.Info("Returning resource " + r.RawResources + " for filter/ID " + filter + "/" + r.ResourceID)
+			log.Debug("Added jail " + r.JailName + " with resources : " + r.RawResources)
 		}
 	}
 
 	return resources, err
 }
 
+// get currently enabled login classes from /etc/login.conf
+func getLoginClasses() ([]string, error) {
+	var lcs []string
+
+	data, err := ioutil.ReadFile("/etc/login.conf")
+	if err != nil {
+		return lcs, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if len(line) > 0 && strings.HasPrefix(string(line), "#") == false && strings.HasPrefix(string(line), " ") == false {
+			s := strings.Split(string(line), ":")
+			if len(s) == 2 {
+				lc := s[0]
+				log.Debug("Appending loginclass " + lc)
+				lcs = append(lcs, lc)
+			}
+		}
+	}
+
+	return lcs, err
+}
+
 // TODO : Return ([]Resource, error), list login classes and support regex
 func getLoginClassResources(subject string, filter string) ([]Resource, error) {
 	var resources []Resource
-	//re, err := regexp.Compile(filter)
-	//if err != nil {
-	//	log.Printf("rctlCollect %s do not compile\n", filter)
-	//	log.Fatal(err)
-	//}
 
-	// TODO : List login classes to match regex
-	rule := fmt.Sprintf("%s:%s", subject, filter)
-	_, err := getRawResourceUsage(rule)
+	lcs, err := getLoginClasses()
+	if err != nil {
+		return resources, err
+	}
+	re, err := regexp.Compile(filter)
+	if err != nil {
+		log.Fatal("rctlCollect %s do not compile", filter)
+	}
+
+	for _, lc := range lcs {
+		if len(re.FindString(lc)) > 0 {
+			rule := fmt.Sprintf("%s:%s", subject, lc)
+			log.Debug("Rule : " + rule)
+			r, err := getResourceUsage(rule)
+			if err != nil {
+				log.Error("Error while getting resource usage for rule : " + rule)
+				return resources, err
+			}
+			//r.ResourceID = strconv.Itoa(jl.jid)
+			r.LoginClassName = lc
+			resources = append(resources, r)
+			log.Debug("Added loginclass " + r.LoginClassName + " with resources : " + r.RawResources)
+		}
+	}
 
 	return resources, err
 }
