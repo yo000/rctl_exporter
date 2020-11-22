@@ -22,22 +22,13 @@ var (
 	log = logrus.New()
 )
 
-// TODO : Dans le fichier de config. processFilter contient des regexp pour identifier les process a collecter
-// On surveille le process sshd de l'utilisateur yo
-//var processFilter = [1]string{"process:^sshd"}
-//var rctlCollect = []string{"process:.*"}
-
 //var rctlCollect = []string{"process:.*", "user:^yo$", "jail:ioc-testarp", "loginclass:.*"}
-var rctlCollect = []string{"process:.*", "user:.*", "jail:.*", "loginclass:.*"}
-
-//var rctlCollect = []string{"loginclass:daemon"}
-//var rctlCollect = []string{"jail:ioc-testarp"}
 
 func main() {
 	var results []rctl.Resource
 	var (
 		app            = kingpin.New("rctl_exporter", "Prometheus metrics exporter for rctl")
-		listenAddress  = app.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9166").String()
+		listenAddress  = app.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9767").String()
 		metricsPath    = app.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
 		rctlCollectArg = app.Flag("rctl.filter", "Filter for rctl collection. Ex: \"process:.*java.*,user:git\"").Default("user:.*").String()
 		//debug         = app.Flag("debug", "Enable debug mode").Bool()
@@ -49,9 +40,7 @@ func main() {
 		log.SetLevel(logrus.DebugLevel)
 	}*/
 
-	if *rctlCollectArg != "user:.*" {
-		rctlCollect = strings.Split(*rctlCollectArg, ",")
-	}
+	rctlCollect := strings.Split(*rctlCollectArg, ",")
 
 	rmgr, err := rctl.NewResourceManager(rctlCollect, log)
 	if err != nil {
