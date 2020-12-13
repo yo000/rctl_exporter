@@ -459,7 +459,12 @@ func getJails() ([]jail, error) {
 		if lastjailid > 0 {
 			nametmp := C.jailparam_export(&params[0])
 			jl.name = C.GoString(nametmp)
-			jl.jid, _ = strconv.Atoi(C.GoString(C.jailparam_export(&params[1])))
+			// Memory mgmt : Non gere par Go
+			C.free(unsafe.Pointer(nametmp))
+			jidtmp := C.jailparam_export(&params[1])
+			jl.jid, _ = strconv.Atoi(C.GoString(jidtmp))
+			// Memory mgmt : Non gere par Go
+			C.free(unsafe.Pointer(jidtmp))
 			jls = append(jls, jl)
 			//log.Debug("Got jid " + strconv.Itoa(jl.jid) + " with name " + jl.name)
 
