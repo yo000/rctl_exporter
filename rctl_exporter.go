@@ -7,6 +7,9 @@ package main
 
 import (
 	"net/http"
+	// For profiling, to fix these memory leaks. This is the only required instruction
+	//  required to enable profiling on the already included web server !
+	_ "net/http/pprof"
 	"os"
 	"strings"
 
