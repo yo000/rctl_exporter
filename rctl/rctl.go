@@ -104,8 +104,12 @@ func (r *ResourceMgr) Refresh() (*ResourceMgr, error) {
 	var results []Resource
 	var err error
 
-	// Temporaire
-	//var resrc string
+	// First, flush previous results to clear RAM
+	for _, resrc := range r.Resources {
+		if resrc.ResourceType == RESRC_PROCESS {
+			resrc.ProcessCmdLine = nil
+		}
+	}
 
 	for _, resrcFilter := range r.resrcesfilter {
 		// split 2 first words, so resrcFilter value can contains ':'
@@ -185,6 +189,10 @@ func rctlGetRacct(rule string) (string, error) {
 			break
 		}
 	}
+
+	//https://go101.org/article/memory-leaking.html
+	//result = append([]byte(nil), _out[:i])
+	//return string(result), nil
 
 	return string(_out[0:i]), nil
 }
@@ -443,7 +451,7 @@ func getJails() ([]jail, error) {
 	C.jailparam_init(&params[0], csname)
 	C.jailparam_init(&params[1], csjid)
 
-	// The key to retrive jail. lastjid = 0 returns first jail and its jid as jailparam_get return value
+	// The key to retrieve jail. lastjid = 0 returns first jail and its jid as jailparam_get return value
 	C.jailparam_init(&params[2], cslastjid)
 
 	lastjailid := 0
