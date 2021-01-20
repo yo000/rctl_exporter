@@ -6,9 +6,11 @@ package rctl
 
 /*
 #cgo CFLAGS: -I /usr/lib
-#cgo LDFLAGS: -L. -ljail
+#cgo LDFLAGS: -L. -ljail -lc
 #include <stdlib.h>
 #include <jail.h>
+#include <utmpx.h>
+#include <pwd.h>
 */
 import "C"
 import (
@@ -42,6 +44,9 @@ const (
 
 	// copied from sys/syscall.h
 	SYS_RCTL_GET_RACCT = 525
+
+	// From utmpx.h
+	USER_PROCESS = 4 /* A process. */
 )
 
 // Resource : Represent a resource and its usage as reported by rctl(8)
@@ -104,12 +109,12 @@ func (r *ResourceMgr) Refresh() (*ResourceMgr, error) {
 	var results []Resource
 	var err error
 
-	// First, flush previous results to clear RAM
-	for _, resrc := range r.Resources {
-		if resrc.ResourceType == RESRC_PROCESS {
-			resrc.ProcessCmdLine = nil
-		}
-	}
+	//// First, flush previous results to clear RAM
+	//for _, resrc := range r.Resources {
+	//	if resrc.ResourceType == RESRC_PROCESS {
+	//		resrc.ProcessCmdLine = nil
+	//	}
+	//}
 
 	for _, resrcFilter := range r.resrcesfilter {
 		// split 2 first words, so resrcFilter value can contains ':'
@@ -374,6 +379,51 @@ func getProcessResources(subject string, filter string) ([]Resource, error) {
 	return results, err
 }
 
+func containsUser(users []user, name string) bool {
+	for _, a := range users {
+		if a.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// get users from utx database
+func getUsers() ([]user, error) {
+	var utx *C.struct_utmpx
+	var pw *C.struct_passwd
+	var users []user
+
+	// Open active DB
+	C.setutxent()
+
+	for {
+		utx = C.getutxent()
+		if utx == nil {
+			break
+		}
+		if utx.ut_type != USER_PROCESS {
+			continue
+		}
+
+		if containsUser(users, C.GoString(&utx.ut_user[0])) == false {
+			pw = C.getpwnam(&utx.ut_user[0])
+			if pw == nil {
+				errr := fmt.Sprintf("Error caling getpwnam for %s\n", C.GoString(&utx.ut_user[0]))
+				return nil, errors.New(errr)
+			}
+			usr := user{name: C.GoString(&utx.ut_user[0]), uid: int(pw.pw_uid)}
+			users = append(users, usr)
+		}
+		//fmt.Printf("%s\n", C.GoString(&utx.ut_user[0]))
+	}
+
+	// Close utx.active DB
+	C.endutxent()
+
+	return users, nil
+}
+
 // get current users from /etc/passwd
 func getUsersFromPasswd() ([]user, error) {
 	var usr user
@@ -403,7 +453,8 @@ func getUsersFromPasswd() ([]user, error) {
 func getUserResources(subject string, filter string) ([]Resource, error) {
 	var resources []Resource
 
-	usrs, err := getUsersFromPasswd()
+	//usrs, err := getUsersFromPasswd()
+	usrs, err := getUsers()
 	if err != nil {
 		return resources, err
 	}
