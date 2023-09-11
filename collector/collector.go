@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	gVersion = "0.6.0"
+	gVersion = "0.6.1"
 )
 
 type Collector struct {
