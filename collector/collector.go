@@ -11,10 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
 	"github.com/yo000/rctl_exporter/rctl"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Collector struct {
@@ -71,7 +70,7 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 						v, err := strconv.ParseFloat(s[1], 64)
 						//v, err := strconv.ParseInt(s[1], 10, 64)
 						if err != nil {
-							log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
+							c.log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
 							return err
 						}
 						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.ResourceID, resrcObj.ProcessName, resrcObj.ProcessCmdLine)
@@ -79,7 +78,7 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.ResourceID, resrcObj.ProcessName, resrcObj.ProcessCmdLine)
 					}
 				} else {
-					log.Error("resource format is incorrect : " + resrc)
+					c.log.Error("resource format is incorrect : " + resrc)
 					return fmt.Errorf("Resource incorrect format : %s", resrc)
 				}
 
@@ -95,7 +94,7 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 						v, err := strconv.ParseFloat(s[1], 64)
 						//v, err := strconv.ParseInt(s[1], 10, 64)
 						if err != nil {
-							log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
+							c.log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
 							return err
 						}
 						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.ResourceID, resrcObj.UserName)
@@ -103,7 +102,7 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.ResourceID, resrcObj.UserName)
 					}
 				} else {
-					log.Error("resource format is incorrect : " + resrc)
+					c.log.Error("resource format is incorrect : " + resrc)
 					return fmt.Errorf("Resource incorrect format : %s", resrc)
 				}
 			}
@@ -118,7 +117,7 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 						v, err := strconv.ParseFloat(s[1], 64)
 						//v, err := strconv.ParseInt(s[1], 10, 64)
 						if err != nil {
-							log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
+							c.log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
 							return err
 						}
 						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.ResourceID, resrcObj.JailName)
@@ -126,7 +125,7 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.ResourceID, resrcObj.JailName)
 					}
 				} else {
-					log.Error("resource format is incorrect : " + resrc)
+					c.log.Error("resource format is incorrect : " + resrc)
 					return fmt.Errorf("Resource incorrect format : %s", resrc)
 				}
 			}
@@ -141,7 +140,7 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 						v, err := strconv.ParseFloat(s[1], 64)
 						//v, err := strconv.ParseInt(s[1], 10, 64)
 						if err != nil {
-							log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
+							c.log.Error("Error parsing " + s[1] + ", value of " + s[0] + " into int : " + err.Error())
 							return err
 						}
 						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, v, resrcObj.LoginClassName)
@@ -149,7 +148,7 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 						ch <- prometheus.MustNewConstMetric(d, prometheus.UntypedValue, 0, resrcObj.LoginClassName)
 					}
 				} else {
-					log.Error("resource format is incorrect : " + resrc)
+					c.log.Error("resource format is incorrect : " + resrc)
 					return fmt.Errorf("Resource incorrect format : %s", resrc)
 				}
 			}

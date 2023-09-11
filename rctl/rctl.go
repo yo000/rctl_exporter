@@ -23,10 +23,9 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/prometheus/common/log"
-	"github.com/sirupsen/logrus"
-	ps "github.com/yo000/go-ps"
 	"golang.org/x/sys/unix"
+	ps "github.com/yo000/go-ps"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -353,7 +352,8 @@ func getProcessResources(subject string, filter string) ([]Resource, error) {
 
 	processList, err := ps.Processes()
 	if err != nil {
-		GLog.Fatal("ps.Processes() Failed, are you using windows?")
+		GLog.Error("ps.Processes() Failed with the following:")
+		GLog.Error("%v", err)
 		return results, err
 	}
 
@@ -365,7 +365,7 @@ func getProcessResources(subject string, filter string) ([]Resource, error) {
 			rule := fmt.Sprintf("%s:%d:", subject, process.Pid())
 			r, err := getResourceUsage(rule)
 			if err != nil {
-				log.Error("Error while getting resource usage for rule : " + rule)
+				GLog.Error("Error while getting resource usage for rule : " + rule)
 				return results, err
 			}
 			r.ResourceID = strconv.Itoa(process.Pid())
@@ -373,7 +373,7 @@ func getProcessResources(subject string, filter string) ([]Resource, error) {
 			r.ProcessName = process.Executable()
 			r.ProcessCmdLine = process.CommandLine()
 			results = append(results, r)
-			log.Debug("Added process " + r.ProcessCmdLine + " with resources : " + r.RawResources)
+			GLog.Debug("Added process " + r.ProcessCmdLine + " with resources : " + r.RawResources)
 		}
 	}
 	return results, err
@@ -440,7 +440,7 @@ func getUsersFromPasswd() ([]user, error) {
 				if strings.Count(string(s[0]), "") > 0 {
 					usr.name = s[0]
 					usr.uid, _ = strconv.Atoi(s[2])
-					log.Debug("Appending user " + usr.name + " with UID " + strconv.Itoa(usr.uid))
+					GLog.Debug("Appending user " + usr.name + " with UID " + strconv.Itoa(usr.uid))
 					usrs = append(usrs, usr)
 				}
 			}
@@ -460,22 +460,22 @@ func getUserResources(subject string, filter string) ([]Resource, error) {
 	}
 	re, err := regexp.Compile(filter)
 	if err != nil {
-		log.Fatal("rctlCollect %s do not compile", filter)
+		GLog.Fatal("rctlCollect %s do not compile", filter)
 	}
 
 	for _, usr := range usrs {
 		if len(re.FindString(usr.name)) > 0 {
 			rule := fmt.Sprintf("%s:%d:", subject, usr.uid)
-			log.Debug("Rule : " + rule)
+			GLog.Debug("Rule : " + rule)
 			r, err := getResourceUsage(rule)
 			if err != nil {
-				log.Error("Error while getting resource usage for rule : " + rule)
+				GLog.Error("Error while getting resource usage for rule : " + rule)
 				return resources, err
 			}
 			r.ResourceID = strconv.Itoa(usr.uid)
 			r.UserName = usr.name
 			resources = append(resources, r)
-			log.Debug("Added user " + r.UserName + " with resources : " + r.RawResources)
+			GLog.Debug("Added user " + r.UserName + " with resources : " + r.RawResources)
 		}
 	}
 
@@ -525,7 +525,7 @@ func getJails() ([]jail, error) {
 			// Memory mgmt : Non gere par Go
 			C.free(unsafe.Pointer(jidtmp))
 			jls = append(jls, jl)
-			//log.Debug("Got jid " + strconv.Itoa(jl.jid) + " with name " + jl.name)
+			//GLog.Debug("Got jid " + strconv.Itoa(jl.jid) + " with name " + jl.name)
 
 			// Prepare next loop iteration
 			cslastjidval := C.CString(strconv.Itoa(lastjailid))
@@ -548,22 +548,22 @@ func getJailResources(subject string, filter string) ([]Resource, error) {
 	}
 	re, err := regexp.Compile(filter)
 	if err != nil {
-		log.Fatal("rctlCollect %s do not compile", filter)
+		GLog.Fatal("rctlCollect %s do not compile", filter)
 	}
 
 	for _, jl := range jls {
 		if len(re.FindString(jl.name)) > 0 {
 			rule := fmt.Sprintf("%s:%s", subject, jl.name)
-			log.Debug("Rule : " + rule)
+			GLog.Debug("Rule : " + rule)
 			r, err := getResourceUsage(rule)
 			if err != nil {
-				log.Error("Error while getting resource usage for rule : " + rule)
+				GLog.Error("Error while getting resource usage for rule : " + rule)
 				return resources, err
 			}
 			r.ResourceID = strconv.Itoa(jl.jid)
 			r.JailName = jl.name
 			resources = append(resources, r)
-			log.Debug("Added jail " + r.JailName + " with resources : " + r.RawResources)
+			GLog.Debug("Added jail " + r.JailName + " with resources : " + r.RawResources)
 		}
 	}
 
@@ -583,7 +583,7 @@ func getLoginClasses() ([]string, error) {
 			s := strings.Split(string(line), ":")
 			if len(s) == 2 {
 				lc := strings.Split(s[0], "|")[0]
-				log.Debug("Appending loginclass " + lc)
+				GLog.Debug("Appending loginclass " + lc)
 				lcs = append(lcs, lc)
 			}
 		}
@@ -602,22 +602,22 @@ func getLoginClassResources(subject string, filter string) ([]Resource, error) {
 	}
 	re, err := regexp.Compile(filter)
 	if err != nil {
-		log.Fatal("rctlCollect %s do not compile", filter)
+		GLog.Fatal("rctlCollect %s do not compile", filter)
 	}
 
 	for _, lc := range lcs {
 		if len(re.FindString(lc)) > 0 {
 			rule := fmt.Sprintf("%s:%s", subject, lc)
-			log.Debug("Rule : " + rule)
+			GLog.Debug("Rule : " + rule)
 			r, err := getResourceUsage(rule)
 			if err != nil {
-				log.Error("Error while getting resource usage for rule : " + rule)
+				GLog.Error("Error while getting resource usage for rule : " + rule)
 				return resources, err
 			}
 			//r.ResourceID = strconv.Itoa(jl.jid)
 			r.LoginClassName = lc
 			resources = append(resources, r)
-			log.Debug("Added loginclass " + r.LoginClassName + " with resources : " + r.RawResources)
+			GLog.Debug("Added loginclass " + r.LoginClassName + " with resources : " + r.RawResources)
 		}
 	}
 
