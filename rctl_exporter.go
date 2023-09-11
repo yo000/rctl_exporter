@@ -6,19 +6,19 @@
 package main
 
 import (
+	"os"
+	"strings"
 	"net/http"
 	// For profiling, to fix these memory leaks. This is the only required instruction
 	//  required to enable profiling on the already included web server !
 	_ "net/http/pprof"
-	"os"
-	"strings"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
-	"github.com/yo000/rctl_exporter/collector"
+	"github.com/alecthomas/kingpin"
 	"github.com/yo000/rctl_exporter/rctl"
-	"gopkg.in/alecthomas/kingpin.v2"
+	"github.com/yo000/rctl_exporter/collector"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"	
 )
 
 var (
@@ -34,14 +34,13 @@ func main() {
 		listenAddress  = app.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9767").String()
 		metricsPath    = app.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
 		rctlCollectArg = app.Flag("rctl.filter", "Filter for rctl collection. Ex: \"process:.*java.*,user:git\"").Default("user:.*").String()
-		//debug         = app.Flag("debug", "Enable debug mode").Bool()
+		debug         = app.Flag("debug", "Enable debug mode").Bool()
 	)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
-	// Do not work. Why?
-	/*if *debug == true {
+	if *debug == true {
 		log.SetLevel(logrus.DebugLevel)
-	}*/
+	}
 
 	rctlCollect := strings.Split(*rctlCollectArg, ",")
 
