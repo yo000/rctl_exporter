@@ -16,6 +16,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+var (
+	gVersion = "0.6.0"
+)
+
 type Collector struct {
 	resmgr rctl.ResourceMgr
 	log    *logrus.Logger
@@ -160,6 +164,11 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 
 // Collect - called to get the metric values
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
+	ch <- prometheus.MustNewConstMetric(
+		prometheus.NewDesc("rctl_exporter_version", "rctl_exporter Version", []string{}, prometheus.Labels{"version": gVersion}),
+			prometheus.GaugeValue,
+			1,
+	)
 
 	err := c.collectFromResourceStruct(ch)
 	if err != nil {
