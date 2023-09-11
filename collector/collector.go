@@ -7,6 +7,7 @@
 package collector
 
 import (
+	"os"
 	"fmt"
 	"strconv"
 	"strings"
@@ -29,10 +30,10 @@ type Collector struct {
 
 // instantiate a collector object
 func New(resmgr rctl.ResourceMgr, log *logrus.Logger) *Collector {
+	pid := strconv.Itoa(os.Getpid())
 	return &Collector{
-
-		//up: prometheus.NewDesc("rctl_up", "Whether scraping rctl's metrics was successful", []string{"collectFilter"}, nil),
-		up:     prometheus.NewDesc("rctl_up", "Whether scraping rctl's metrics was successful", []string{"pid", "cmdline"}, nil),
+		up:     prometheus.NewDesc("rctl_up", "Whether scraping rctl's metrics was successful", nil,
+				prometheus.Labels{"version": gVersion,"pid": pid}),
 		log:    log,
 		resmgr: resmgr,
 
@@ -164,16 +165,10 @@ func (c *Collector) collectFromResourceStruct(ch chan<- prometheus.Metric) error
 
 // Collect - called to get the metric values
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
-	ch <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc("rctl_exporter_version", "rctl_exporter Version", []string{}, prometheus.Labels{"version": gVersion}),
-			prometheus.GaugeValue,
-			1,
-	)
-
 	err := c.collectFromResourceStruct(ch)
 	if err != nil {
-		ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 0, "pidnull", "cmdlinenull")
+		ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 0)
 	} else {
-		ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 1, "pidnull", "cmdlinenull")
+		ch <- prometheus.MustNewConstMetric(c.up, prometheus.GaugeValue, 1)
 	}
 }
